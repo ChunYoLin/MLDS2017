@@ -30,6 +30,16 @@ def _file_to_word_ids(filename, word_to_id):
     data = _read_words(filename)
     return [word_to_id[word] for word in data if word in word_to_id]
 
+def test_data(word_to_id):
+    test_file = './data/testing_data.csv'
+    with open(test_file) as f:
+        for line in f.read().splitlines():
+            line = re.sub("\"", "", line)
+            line = re.findall("[0-9]+,(.+)", line)
+            if line:
+                print len(line[0].split(".,"))
+            
+
 def Data_producer(raw_data, batch_size, num_steps, name = None):
     with tf.name_scope(name, "Data_producer", [raw_data, batch_size, num_steps]):
         raw_data = tf.convert_to_tensor(raw_data, name = "raw_data", dtype = tf.int32)
@@ -44,11 +54,7 @@ def Data_producer(raw_data, batch_size, num_steps, name = None):
         y = tf.strided_slice(data, [0, i * num_steps + 1], [batch_size, (i + 1) * num_steps + 1])
         y.set_shape([batch_size, num_steps])
         return x, y
-with tf.device('/cpu:0'):
-    word_to_id = _build_vocab(f)
-    print len(word_to_id)
-    train = _file_to_word_ids(f, word_to_id)
-    x, y = Data_producer(train, 32, 5)
-
-    sess = tf.Session()
-    sess.run(x)
+wid = _build_vocab(f)
+print test_data(wid)
+    #  sess = tf.Session()
+    #  sess.run(x)
