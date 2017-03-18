@@ -50,6 +50,7 @@ class lstm_model():
                 [tf.ones([batch_size * num_steps], dtype = tf.float32)])
         self._cost = cost = tf.reduce_sum(loss) / batch_size
         self._final_state = state
+        self._final_logits = logits
         if not is_training:
             return
         self._lr = tf.Variable(0., trainable = False)
@@ -81,6 +82,10 @@ class lstm_model():
     @property
     def final_state(self):
         return self._final_state
+
+    @property
+    def final_logits(self):
+        return self._final_logits
     
     @property
     def lr(self):
@@ -89,21 +94,6 @@ class lstm_model():
     @property
     def train_op(self):
         return self._train_op
-
-class SmallConfig(object):
-  """Small config."""
-  init_scale = 0.1
-  learning_rate = 1.0
-  max_grad_norm = 5
-  num_layers = 1
-  num_steps = 20
-  hidden_size = 200
-  max_epoch = 4
-  max_max_epoch = 13
-  keep_prob = 1.0
-  lr_decay = 0.5
-  batch_size = 10
-  vocab_size = 6000
 
 def run_epoch(session, model, eval_op = None, verbose = False):
     start_time = time.time()
@@ -127,7 +117,6 @@ def run_epoch(session, model, eval_op = None, verbose = False):
         vals = session.run(fetches, feed_dict)
         cost = vals["cost"]
         state = vals["final_state"]
-        
         costs += cost
         iters += model.input.num_steps
 
@@ -137,17 +126,89 @@ def run_epoch(session, model, eval_op = None, verbose = False):
                  iters * model.input.batch_size / (time.time() - start_time)))
     return np.exp(costs / iters)
 
+def run_predict(session, model, eval_op = None, verbose = False):
+    start_time = time.time()
+    costs = 0.
+    iters = 0
+    state = session.run(model.initial_state)
+
+    fetches = {
+        "final_state": model.final_state,
+        "final_logits": model.final_logits,
+    }
+    if eval_op is not None:
+        fetches["eval_op"] = eval_op
+    
+    feed_dict = {}
+    for i, (c, h) in enumerate(model.initial_state):
+        feed_dict[c] = state[i].c
+        feed_dict[h] = state[i].h
+    
+    vals = session.run(fetches, feed_dict)
+    state = vals["final_state"]
+    logits = vals["final_logits"]
+    
+    return logits
+
+class SmallConfig(object):
+  """Small config."""
+  init_scale = 0.1
+  learning_rate = 1.0
+  max_grad_norm = 5
+  num_layers = 1
+  num_steps = 5
+  hidden_size = 200
+  max_epoch = 4
+  max_max_epoch = 2
+  keep_prob = 1.0
+  lr_decay = 0.5
+  batch_size = 10
+  vocab_size = 12000
+
+class TestConfig(object):
+  """Small config."""
+  init_scale = 0.1
+  learning_rate = 1.0
+  max_grad_norm = 1
+  num_layers = 1
+  num_steps = 5
+  hidden_size = 200
+  max_epoch = 1
+  max_max_epoch = 1
+  keep_prob = 1.0
+  lr_decay = 0.5
+  batch_size = 10
+  vocab_size = 12000
+
 def main(_):
     f = './data/Holmes_Training_Data/14WOZ10.TXT'
     word_to_id = data_reader._build_vocab(f)
+    inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
     train_data = data_reader._file_to_word_ids(f, word_to_id)
+    test_all, test_before, test_after, test_answer = data_reader.test_data()
+    test_data = []
+    for line in test_before:
+        test_data.append(data_reader._list_to_word_ids(line, word_to_id))
     config = SmallConfig()
+    test_index = 10
+    eval_config = TestConfig()
+    eval_config.batch_size = 1
+    test_len = len(test_data[test_index]) - 1
+    print len(test_data[test_index])
+    eval_config.num_steps = test_len
     with tf.Graph().as_default():
         initializer = tf.random_uniform_initializer(-config.init_scale, config.init_scale)
         with tf.name_scope("Train"):
             train_input = lstm_input(config = config, data = train_data, name = "TrainInput")
-            with tf.variable_scope("Model", reuse = None, initializer = initializer):
+            with tf.variable_scope("Model", reuse = False, initializer = initializer):
                 m = lstm_model(is_training = True, config = config, input_ = train_input)
+
+        with tf.name_scope("Test"):
+            test_input = lstm_input(config = eval_config, data = test_data[test_index], name = "TestInput")
+            with tf.variable_scope("Model", reuse = True, initializer = initializer):
+                mtest = lstm_model(is_training = False, config = eval_config, input_ = test_input)
+
+
         sv = tf.train.Supervisor(logdir = "./model_checkpoints")
         with sv.managed_session() as session:
             for i in range(config.max_max_epoch):
@@ -156,6 +217,18 @@ def main(_):
                 print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
                 train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
                 print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
+
+            ans = run_predict(session, mtest)
+                
+
+            print "test results"
+            print test_data[test_index][: test_len]
+            for option in test_answer[test_index]:
+                if option in word_to_id:
+                    print option, ans[test_len - 1][word_to_id[option]]
+                else:
+                    print option, 0
+            
 
         
 if __name__ == "__main__":

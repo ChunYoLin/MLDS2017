@@ -1,6 +1,7 @@
 import collections
 import os
 import re
+import csv
 import tensorflow as tf
 
 f = './data/Holmes_Training_Data/14WOZ10.TXT'
@@ -18,27 +19,58 @@ def _read_words(filename):
 
 def _build_vocab(filename):
     data = _read_words(filename)
+    count = [['UNK', -1]]
+    count.extend(collections.Counter(data).most_common(11999))
+    dictionary = dict()
+    for word, _ in count:
+        dictionary[word] = len(dictionary)
+    return dictionary
 
-    counter = collections.Counter(data)
-    count_pairs = sorted(counter.items(), key = lambda x: (-x[1], x[0]))
-
-    words, _ = list(zip(*count_pairs))
-    word_to_id = dict(zip(words, range(len(words))))
-    return word_to_id
+def _list_to_word_ids(_list, word_to_id):
+    return [word_to_id[word] for word in _list if word in word_to_id]
 
 def _file_to_word_ids(filename, word_to_id):
-    data = _read_words(filename)
-    return [word_to_id[word] for word in data if word in word_to_id]
+    words = _read_words(filename)
+    data = list()
+    unk_count = 0
+    for word in words:
+        if word in word_to_id:
+            index = word_to_id[word]
+        else:
+            index = 0
+            unk_count += 1
+        data.append(index)
+    #  count[0][1] = unk_count
+    return data
+    #  return [word_to_id[word] for word in data if word in word_to_id]
 
-def test_data(word_to_id):
+def test_data():
     test_file = './data/testing_data.csv'
-    with open(test_file) as f:
-        for line in f.read().splitlines():
-            line = re.sub("\"", "", line)
-            line = re.findall("[0-9]+,(.+)", line)
+    with open(test_file)as f:
+        test_reader = csv.reader(f, delimiter = ',')
+        test_question_all = []
+        test_question_before = []
+        test_question_after = []
+        test_answer = []
+        for line in test_reader:
             if line:
-                print len(line[0].split(".,"))
-            
+                state = 0
+                line_before = []
+                line_after = []
+                for word in line[1].lower().split():
+                    if word == '_____':
+                        state = 1
+                    elif state == 0:
+                        line_before.append(word)
+                    elif state == 1:
+                        line_after.append(word)
+                line_before.append('UNK')
+                line_after.append('UNK')
+                test_question_before.append(line_before)
+                test_question_after.append(line_after)
+                test_question_all.append(line[1])
+                test_answer.append(line[2:])
+    return test_question_all, test_question_before, test_question_after, test_answer
 
 def Data_producer(raw_data, batch_size, num_steps, name = None):
     with tf.name_scope(name, "Data_producer", [raw_data, batch_size, num_steps]):
@@ -54,7 +86,3 @@ def Data_producer(raw_data, batch_size, num_steps, name = None):
         y = tf.strided_slice(data, [0, i * num_steps + 1], [batch_size, (i + 1) * num_steps + 1])
         y.set_shape([batch_size, num_steps])
         return x, y
-wid = _build_vocab(f)
-print test_data(wid)
-    #  sess = tf.Session()
-    #  sess.run(x)
