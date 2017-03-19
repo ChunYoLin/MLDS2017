@@ -2,12 +2,15 @@ import data_reader
 import numpy as np
 import tensorflow as tf
 import time
+import csv
+import os
 
 class lstm_input(object):
   def __init__(self, config, data, name = None):
     self.batch_size = batch_size = config.batch_size
     self.num_steps = num_steps = config.num_steps
     self.epoch_size = ((len(data) // batch_size) - 1) // num_steps
+    print self.epoch_size
     self.input_data, self.targets = data_reader.Data_producer(
         data, batch_size, num_steps, name = name)
 
@@ -138,7 +141,10 @@ def run_predict(session, model, eval_op = None, verbose = False):
     }
     if eval_op is not None:
         fetches["eval_op"] = eval_op
-    
+
+    #  test_in = []
+    #  for step in range(model.input.epoch_size + 1):
+        #  test_in.append(session.run(model.input.input_data))
     feed_dict = {}
     for i, (c, h) in enumerate(model.initial_state):
         feed_dict[c] = state[i].c
@@ -147,32 +153,46 @@ def run_predict(session, model, eval_op = None, verbose = False):
     vals = session.run(fetches, feed_dict)
     state = vals["final_state"]
     logits = vals["final_logits"]
-    
     return logits
 
 class SmallConfig(object):
-  """Small config."""
-  init_scale = 0.1
-  learning_rate = 1.0
-  max_grad_norm = 5
-  num_layers = 1
-  num_steps = 5
-  hidden_size = 200
-  max_epoch = 4
-  max_max_epoch = 2
-  keep_prob = 1.0
-  lr_decay = 0.5
-  batch_size = 10
-  vocab_size = 12000
+    """Small config."""
+    init_scale = 0.1
+    learning_rate = 1.0
+    max_grad_norm = 5
+    num_layers = 1
+    num_steps = 5
+    hidden_size = 200
+    max_epoch = 4
+    max_max_epoch = 1
+    keep_prob = 1.0
+    lr_decay = 0.5
+    batch_size = 20
+    vocab_size = 12000
+
+class MediumConfig(object):
+    """Medium config."""
+    init_scale = 0.05
+    learning_rate = 1.0
+    max_grad_norm = 5
+    num_layers = 2
+    num_steps = 35
+    hidden_size = 650
+    max_epoch = 6
+    max_max_epoch = 5
+    keep_prob = 0.5
+    lr_decay = 0.8
+    batch_size = 20
+    vocab_size = 12000
 
 class TestConfig(object):
-  """Small config."""
+  """Test config."""
   init_scale = 0.1
   learning_rate = 1.0
   max_grad_norm = 1
   num_layers = 1
   num_steps = 5
-  hidden_size = 200
+  hidden_size = 650
   max_epoch = 1
   max_max_epoch = 1
   keep_prob = 1.0
@@ -180,22 +200,63 @@ class TestConfig(object):
   batch_size = 10
   vocab_size = 12000
 
+def TEST_data():
+    test_file = './data/testing_data.csv'
+    with open(test_file)as f:
+        test_reader = csv.reader(f, delimiter = ',')
+        test_question_all = []
+        test_question_before = []
+        test_question_after = []
+        test_answer = []
+        max_len = 0
+        for line in test_reader:
+            if line:
+                state = 0
+                line_before = []
+                line_after = []
+                for word in line[1].lower().split():
+                    if word == '_____':
+                        state = 1
+                    elif state == 0:
+                        line_before.append(word)
+                    elif state == 1:
+                        line_after.append(word)
+
+                test_question_before.append(line_before)
+                #  test_question_after.append(line_after)
+                #  test_question_all.append(line[1])
+                test_answer.append(line[2:])
+    return test_question_before, test_answer
+
 def main(_):
-    f = './data/Holmes_Training_Data/14WOZ10.TXT'
-    word_to_id = data_reader._build_vocab(f)
+    f_list = []
+    for file_id, filename in enumerate(os.listdir('./data/Holmes_Training_Data')):
+        if file_id < 100:
+            filename = './data/Holmes_Training_Data/' + filename
+            f_list.append(filename)
+    word_to_id = data_reader._build_multi_vocab(f_list)
     inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
-    train_data = data_reader._file_to_word_ids(f, word_to_id)
-    test_all, test_before, test_after, test_answer = data_reader.test_data()
-    test_data = []
-    for line in test_before:
-        test_data.append(data_reader._list_to_word_ids(line, word_to_id))
-    config = SmallConfig()
-    test_index = 10
+    train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
+    test_before, test_answer = TEST_data()
+    test_data_orig = []
+    test_data_orig_len = []
+    test_data_sync = []
+    max_len = 0
+    for idx, line in enumerate(test_before):
+        test_data_orig.append(data_reader._list_to_word_ids(line, word_to_id))
+        test_data_orig_len.append(len(test_data_orig[idx]))
+        if len(test_data_orig[idx]) > max_len:
+            max_len = len(test_data_orig[idx])
+    for line in test_data_orig:
+        for i in range(max_len - len(line)):
+            line.append(0)
+        for w in line:
+            test_data_sync.append(w)
     eval_config = TestConfig()
     eval_config.batch_size = 1
-    test_len = len(test_data[test_index]) - 1
-    print len(test_data[test_index])
-    eval_config.num_steps = test_len
+    eval_config.num_steps = max_len
+    
+    config = MediumConfig()
     with tf.Graph().as_default():
         initializer = tf.random_uniform_initializer(-config.init_scale, config.init_scale)
         with tf.name_scope("Train"):
@@ -204,7 +265,7 @@ def main(_):
                 m = lstm_model(is_training = True, config = config, input_ = train_input)
 
         with tf.name_scope("Test"):
-            test_input = lstm_input(config = eval_config, data = test_data[test_index], name = "TestInput")
+            test_input = lstm_input(config = eval_config, data = test_data_sync, name = "TestInput")
             with tf.variable_scope("Model", reuse = True, initializer = initializer):
                 mtest = lstm_model(is_training = False, config = eval_config, input_ = test_input)
 
@@ -218,18 +279,36 @@ def main(_):
                 train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
                 print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
 
-            ans = run_predict(session, mtest)
-                
+            test_in = []
+            pred = []
+            for i in range(1041):
+                pred.append(run_predict(session, mtest))
 
-            print "test results"
-            print test_data[test_index][: test_len]
-            for option in test_answer[test_index]:
-                if option in word_to_id:
-                    print option, ans[test_len - 1][word_to_id[option]]
-                else:
-                    print option, 0
+
             
-
+            ans = np.zeros([1041, 5], np.float32)
+            for idx, orig_len in enumerate(test_data_orig_len):
+                #  print [inv_word_to_id[test_data_orig[idx][i]] for i in range(orig_len)]
+                for option_id, option in enumerate(test_answer[idx]):
+                    if option in word_to_id:
+                        ans[idx, option_id] = pred[idx][orig_len - 1, word_to_id[option]]
+                    else:
+                        ans[idx, option_id] = 0.
+            with open('ans.csv', 'w') as f:
+                f.write("id,answer\n")
+                for idx, out in enumerate(ans):
+                    if idx > 0:
+                        if np.argmax(ans[idx]) == 0:
+                            f.write(str(idx) + ',a\n')
+                        elif np.argmax(ans[idx]) == 1:
+                            f.write(str(idx) + ',b\n')
+                        elif np.argmax(ans[idx]) == 2:
+                            f.write(str(idx) + ',c\n')
+                        elif np.argmax(ans[idx]) == 3:
+                            f.write(str(idx) + ',d\n')
+                        elif np.argmax(ans[idx]) == 4:
+                            f.write(str(idx) + ',a\n')
+                
         
 if __name__ == "__main__":
     tf.app.run()
