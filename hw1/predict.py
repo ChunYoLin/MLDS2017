@@ -126,7 +126,7 @@ def predict():
                 except KeyError:
                     #print "not found! ",  question[i]
                     embd_question[0, i] = model['UNK']
-            test_prob, state_ = sess.run([probs, final_state], 
+            test_prob, state_ = sess.run([probs, init_state], 
                                          feed_dict = {x: embd_question, 
                                                       keep_prob: 1, 
                                                       init_state: state_})
