@@ -65,8 +65,6 @@ biases = {
     'out': tf.Variable(tf.constant(0.1, shape = [vocabulary_size, ]))
 }
 
-predict = 0
-
 def RNN(X, weights, biases, batch_size):
     print('????????????????????????????????????????')
     # X ==> (20 batch * max_len steps,  100 inputs)
@@ -94,13 +92,9 @@ def RNN(X, weights, biases, batch_size):
     outputs = tf.reshape(outputs,[-1, n_hidden_units])
     results = tf.matmul(outputs, weights['out']) + biases['out']
     probs = tf.nn.softmax(results)
-    return results, probs
-
-#prob to predict next vocab 
-if predict != 0:
-    result, probs = RNN(x, weights, biases, batch_size)
+    #prob to predict next vocab 
     loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
-            [result],
+            [results],
             [tf.reshape(y, [-1])],
             [tf.ones([batch_size * n_steps], dtype = tf.float32)])
 
@@ -109,10 +103,24 @@ if predict != 0:
     grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 5)
     optimizer = tf.train.AdamOptimizer(1e-3)
     train_op = optimizer.apply_gradients(zip(grads, tvars))
+    return results,loss, probs, cost, train_op
+
+#prob to predict next vocab 
+result_, loss_, probs_, cost_, train_op_ = RNN(x, weights, biases, batch_size)
+
+  
+ 
+
+
+
+
+
+
+
 
 sess = tf.Session()
 sess.run(tf.global_variables_initializer())
-predict = -1
+
 print '= Training ='
 batch_size = 20
 while epoch > 0:
@@ -120,7 +128,7 @@ while epoch > 0:
         if len(new_sentences) - data_index < batch_size:
             break
         batch_xs, batch_ys = generate_batch(batch_size, dictionary)
-        train_probs, train_loss, _ = sess.run([probs, cost, train_op], 
+        train_probs, train_loss, _ = sess.run([probs_, cost_, train_op_], 
                                  feed_dict = {x: batch_xs, y: batch_ys, keep_prob: 0.5})
         print(train_probs.shape)
         print("Epoch %d: %d Train Perplexity: %.3f" % (epoch, data_index, train_loss))
@@ -174,7 +182,7 @@ for row in reader:
         except KeyError:
             print "not found! ",  question[i]
             embd_question[0, i] = model['UNK']
-    test_prob = sess.run(probs, feed_dict = {x: embd_question, keep_prob: 1})
+    test_prob = sess.run(probs_, feed_dict = {x: embd_question, keep_prob: 1})
     print(row[0])
     print(test_prob.shape)     
 
@@ -191,6 +199,7 @@ numpy.savetxt('result.csv',
 print max_len
 
     
+
 
 
 
