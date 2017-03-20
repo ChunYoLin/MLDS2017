@@ -29,19 +29,19 @@ def _read_multi_words(filelist):
                 words.append(word)
     return words
 
-def _build_vocab(filename):
+def _build_vocab(filename, vocab_size):
     data = _read_words(filename)
     count = [['UNK', -1]]
-    count.extend(collections.Counter(data).most_common(11999))
+    count.extend(collections.Counter(data).most_common(vocab_size - 1))
     dictionary = dict()
     for word, _ in count:
         dictionary[word] = len(dictionary)
     return dictionary
 
-def _build_multi_vocab(filelist):
+def _build_multi_vocab(filelist, vocab_size):
     data = _read_multi_words(filelist)
     count = [['UNK', -1]]
-    count.extend(collections.Counter(data).most_common(11999))
+    count.extend(collections.Counter(data).most_common(vocab_size - 1))
     dictionary = dict()
     for word, _ in count:
         dictionary[word] = len(dictionary)
