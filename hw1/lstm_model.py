@@ -47,10 +47,20 @@ class lstm_model():
         softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype = tf.float32)
         softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype = tf.float32)
         logits = tf.matmul(output, softmax_w) + softmax_b
-        loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
-                [logits],
-                [tf.reshape(input_.targets, [-1])],
-                [tf.ones([batch_size * num_steps], dtype = tf.float32)])
+        
+        #  loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
+                #  [logits],
+                #  [tf.reshape(input_.targets, [-1])],
+                #  [tf.ones([batch_size * num_steps], dtype = tf.float32)])
+
+        loss = tf.nn.sampled_softmax_loss(
+                weights = tf.transpose(softmax_w), 
+                biases = softmax_b, 
+                labels = tf.reshape(input_.targets, [-1, 1]), 
+                inputs = output, 
+                num_sampled = 64,
+                num_classes = vocab_size)
+
         self._cost = cost = tf.reduce_sum(loss) / batch_size
         self._final_state = state
         self._final_logits = logits
@@ -179,7 +189,7 @@ class MediumConfig(object):
     num_steps = 35
     hidden_size = 650
     max_epoch = 6
-    max_max_epoch = 5
+    max_max_epoch = 10
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 20
