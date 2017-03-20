@@ -157,6 +157,3 @@ np.savetxt('result.csv',
               fmt = '%s',
               comments = '') 
 
-
-
-
