@@ -6,17 +6,6 @@ import csv
 import numpy as np
 import tensorflow as tf
 
-#from gensim.models import Word2Vec
-'''
-print "Loading model"
-model = Word2Vec.load('mymodel')
-
-
-print model.similar_by_word('million')
-print model.similar_by_word('information')
-'''
-
-
 flags = tf.flags
 logging = tf.logging
 
@@ -36,23 +25,60 @@ flags.DEFINE_bool("train", False,
 
 FLAGS = flags.FLAGS
 
+mark_dic = {    ',':' , ',
+                '\.':' . ',
+                '!':' ! ',
+                '\?':' ? ',
+                ';':' ; ',
+                ':':' : ',
+            }
+marks = ['.', '?', '!', ';', ':']
+REPLACE = '[^A-Za-z,.;?!: ]'
 
 def data_type():
     return tf.float16 if FLAGS.use_fp16 else tf.float32
 
-def read_data(dirname):
-    words = []
-    i=0
+def read_parse_data(dirname, num_steps):
+    sentences = []
+    stop = 0
+    over_num = 0
+    under_num = 0
     for filename in os.listdir(dirname):
-        i+=1
-        if i > 101:
+        stop += 1
+        if stop >= 101:
             break
-        for line in open(os.path.join(dirname, filename)):
-            words.extend(re.sub('[^A-Za-z ]','',line).split())
+        words = []
+        with open(os.path.join(dirname, filename)) as F:
+            for _ in range(500):
+                next(F)
 
-    return words
+            for line in F:
+                string = re.sub(REPLACE,'',line)
+                for mark, rep in mark_dic.iteritems():
+                    string = re.sub(mark, rep, string)
+                words.extend(string.split())
+        words = words[words.index('.')+1:-1]
+        _sent = ['[']
+        for _w in words:
+            if not _w:
+                continue
+            _sent.append(_w.lower())
+            if _w in marks:
+                _sent.pop()
+                _sent.append(']')
+                if len(_sent) > num_steps:
+                    over_num += 1
+                if len(_sent) < 10:
+                    under_num += 1
+                if len(_sent) <= num_steps and len(_sent) >= 10: #310947
+                    while len(_sent) != num_steps:
+                        _sent.append(']')
+                    sentences.extend(_sent)
+                _sent = ['[']
+    print "Over %d Under %d" % (over_num, under_num)
+    return sentences
 
-def read_test_data(filename):
+def read_test_data(filename, num_steps):
     opt = ['a', 'b', 'c', 'd', 'e']
     #to_num = lambda word: dic.get(word, 0)
     data = []
@@ -60,25 +86,51 @@ def read_test_data(filename):
     F = open(filename, 'r')
     reader = csv.reader(F)
     next(reader, None)
-    max_len = 0
     for row in reader:
         que = {}
         que['id'] = row[0]
-        _sent = re.sub('[^A-Za-z_ ]','',row[1]).split()
-        _pos = _sent.index('_____')
-        _sent = _sent[0:_pos+1]
-        #que['sentence'] = map(to_num, _sent)
-        que['sentence'] = _sent
-        if len(que['sentence']) > max_len:
-            max_len = len(que['sentence'])
+        sent = ['[']
+        _str = re.sub('_____', 'xxxxx', row[1])
+        _str = re.sub(REPLACE,'',_str)
+        for mark, rep in mark_dic.iteritems():
+                _str = re.sub(mark, rep, _str)
+        _sent = _str.split()
+        flag = 0
+        for _w in _sent:
+            if not _w :
+                continue
+            sent.append(_w.lower())
+            if _w in marks and flag == 0:
+                sent = ['[']
+            elif _w in marks and flag == 1:
+                break
+            elif _w == 'xxxxx':
+                flag = 1
+        sent.pop()
+        sent.append(']')
+        que['sentence'] = sent
+        if len(que['sentence']) < 10:
+            sent = ['[']
+            _str = re.sub('_____', 'xxxxx', row[1])
+            _str = re.sub('[^A-Za-z_ ]','',_str)
+            _str = _str.lower()
+            sent.extend(_str.split())
+            sent.append(']')
+            que['sentence'] = sent
+        if len(que['sentence']) > num_steps:
+            print "Test over %s %d" % (que['id'], len(que['sentence']))
+            que['sentence'] = que['sentence'][0:num_steps]
 
+        que['pos'] = que['sentence'].index('xxxxx') 
         for i in range(5):
-            que[ opt[i] ] = row[i+2]
-            if row[i+2] not in opt_words:
-                opt_words.append(row[i+2])
+            _w = row[i+2]
+            _w = re.sub('[^A-Za-z]', '', _w).lower()
+            que[ opt[i] ] = _w
+            if _w not in opt_words:
+                opt_words.append(_w)
         data.append(que)
     F.close
-    return data, opt_words, max_len
+    return data, opt_words
 
 def build_dataset(words, test_que, opt_words, config):
     count = [['UNK', -1]]
@@ -114,12 +166,12 @@ def build_dataset(words, test_que, opt_words, config):
     to_word = lambda ind: reverse_dictionary[ind]
     for que in test_que:
         que['sentence'] = map(to_num, que['sentence'])
-    for i in range(2):
+    for i in range(2, 4):
         print test_que[i]['sentence']
-        print map(to_word, test_que[i]['sentence'])
+        print ' '.join(map(to_word, test_que[i]['sentence']))
     test_size = len(test_que)
     num = config.num_steps
-    test_data = np.zeros( (test_size*num)+1 )
+    test_data = np.full( (test_size*num), dictionary[']'] )
     for i in range(test_size):
         _len = len(test_que[i]['sentence'])
         test_data[ i*num : i*num+_len ] = test_que[i]['sentence']
@@ -134,11 +186,11 @@ def data_producer(raw_data, batch_size, num_steps, name=None):
         raw_data = tf.convert_to_tensor(raw_data, name="raw_data", dtype=tf.int32)
 
         data_len = tf.size(raw_data)
-        batch_len = data_len // batch_size
+        epoch_size = (data_len // batch_size) // num_steps
+        batch_len = epoch_size * num_steps
         data = tf.reshape(raw_data[0 : batch_size * batch_len],
                                             [batch_size, batch_len])
 
-        epoch_size = (batch_len - 1) // num_steps
         assertion = tf.assert_positive(
                 epoch_size,
                 message="epoch_size == 0, decrease batch_size or num_steps")
@@ -149,8 +201,14 @@ def data_producer(raw_data, batch_size, num_steps, name=None):
         x = tf.strided_slice(data, [0, i * num_steps],
                                                  [batch_size, (i + 1) * num_steps])
         x.set_shape([batch_size, num_steps])
-        y = tf.strided_slice(data, [0, i * num_steps + 1],
-                                                 [batch_size, (i + 1) * num_steps + 1])
+        _y_1 = tf.strided_slice(data, [0, i * num_steps + 1],
+                                                 [batch_size, (i + 1) * num_steps])
+        _y_1.set_shape([batch_size, num_steps-1])
+        _y_2 = tf.strided_slice(data, [0, (i + 1) * num_steps - 1],
+                                                 [batch_size, (i + 1) * num_steps])
+        _y_2.set_shape([batch_size, 1])
+
+        y = tf.concat( [ _y_1, _y_2 ], 1)
         y.set_shape([batch_size, num_steps])
         return x, y
 
@@ -248,6 +306,7 @@ class RNNModel(object):
         '''
         #'''
         loss = tf.nn.sampled_softmax_loss(
+        #loss = tf.nn.nce_loss(
                                 weights = tf.transpose(softmax_w),
                                 biases = softmax_b,
                                 inputs = output,
@@ -323,7 +382,7 @@ class SmallConfig(object):
     learning_rate = 1.0
     max_grad_norm = 5
     num_layers = 2
-    num_steps = 30
+    num_steps = 40
     hidden_size = 256
     max_epoch = 2
     max_max_epoch = 2
@@ -339,7 +398,7 @@ class MediumConfig(object):
     learning_rate = 1.0
     max_grad_norm = 5
     num_layers = 2
-    num_steps = 30
+    num_steps = 40
     hidden_size = 512
     max_epoch = 6
     max_max_epoch = 10
@@ -355,7 +414,7 @@ class LargeConfig(object):
     learning_rate = 1.0
     max_grad_norm = 10
     num_layers = 2
-    num_steps = 35
+    num_steps = 40
     hidden_size = 1500
     max_epoch = 14
     max_max_epoch = 55
@@ -371,7 +430,7 @@ class TestConfig(object):
     learning_rate = 1.0
     max_grad_norm = 1
     num_layers = 1
-    num_steps = 2
+    num_steps = 40
     hidden_size = 2
     max_epoch = 1
     max_max_epoch = 1
@@ -409,7 +468,7 @@ def run_epoch(session, model, eval_op=None, verbose=False):
         iters += model.input.num_steps
         if verbose and step % (model.input.epoch_size // 10) == 10:
             print("%.3f perplexity: %.3f speed: %.0f wps" %
-                        (step * 1.0 / model.input.epoch_size, np.exp(costs / iters),
+                        (step * 1.0 / model.input.epoch_size, (costs / iters),
                          iters * model.input.batch_size / (time.time() - start_time)))
 
     return np.exp(costs / iters)
@@ -460,30 +519,56 @@ def max_prob_word(probs, que, dic):
 def main(_):
     if not FLAGS.data_path:
         raise ValueError("Must set --data_path to PTB data directory")
+    config = get_config()
 
     print "=== Test Data ==="
-    test_que, opt_words, sent_len = read_test_data("testing_data.csv")
-    print "Max Sent Len : %d" % sent_len
+    test_que, opt_words = \
+                read_test_data("testing_data.csv", config.num_steps)
+    
+    for i in range(4):
+        que = test_que[i]
+        _sent = que['sentence']
+        print "%s(%d) : %s" % (que['id'], que['pos'], ' '.join(_sent))
+    print "Max IND %d" % (max([int(que['pos']) for que in test_que]))
     print "Opt words num : %d" % len(opt_words)
-
-    print "=== Train Data ==="
-    words = read_data(FLAGS.data_path)
-    valid_size = len(words) / 20
-    print "Data Size ", len(words)
-    print "Valid Size ", valid_size
-    config = get_config()
+    
+    print "   === Train Data ==="
+    sentences = read_parse_data(FLAGS.data_path, config.num_steps)
+    print "Data Size : %d, Sent Num : %d" \
+                % (len(sentences), len(sentences)/config.num_steps)
+    for i in range(2):
+        print ' '.join(sentences[i*config.num_steps : (i+1)*config.num_steps])
+    
+    print "   === Map word ==="
     data, test_data, count, dictionary, reverse_dictionary = \
-                    build_dataset(words, test_que, opt_words, config)
-    del words  # Hint to reduce memory
+                    build_dataset(sentences, test_que, opt_words, config)
+    del sentences  # Hint to reduce memory
     to_word = lambda ind: reverse_dictionary[ind]
     config.vocab_size = len(count)
-    print "vocab_size %d" % len(count)
+    print "   === Data Info. ==="
+    print "vocab_size %d, Test Size %d" % (len(count), len(test_data))
     print('Most common words (+UNK)', count[:5])
     print('Sample data', data[:10], [reverse_dictionary[i] for i in data[:10]])
-    # data is a list of word's id, it translate word to id, like '<UNK>' : 1.
-
+    valid_size = ((len(data) / 20) / config.num_steps) * config.num_steps
     valid_data = data[0:valid_size]
-    train_data = data[valid_size:-1]
+    train_data = data[valid_size:]
+    print "Valid Size %d" % len(valid_data)
+    print "Train Size %d" % len(train_data)
+
+    '''
+    _num = config.num_steps
+    _size = 1
+    _data_len = len(test_data)
+    _epoch_size = ( _data_len / _size) / _num
+    _batch_len = _epoch_size * _num
+    _new_data = np.reshape(test_data[0 : _size * _batch_len],
+                                    [_size, _batch_len])
+    for i in range(2):
+        print "-----"
+        print _new_data[0, i*_num:(i+1)*_num]
+        _sent = map(to_word, _new_data[0, i*_num:(i+1)*_num])
+        print ' '.join(_sent)
+    #'''
     #'''
 
     eval_config = get_config()
@@ -510,7 +595,7 @@ def main(_):
             test_input = Input(config=eval_config, data=test_data, name="TestInput")
             with tf.variable_scope("Model", reuse=True, initializer=initializer):
                 mtest = RNNModel(is_training=False, config=eval_config, input_=test_input)
-
+        #'''   
         sv = tf.train.Supervisor(logdir=FLAGS.save_path)
         saver=sv.saver
         with sv.managed_session() as session:
@@ -541,16 +626,17 @@ def main(_):
                 row = []
                 x, y, probs = run_predict(session, mtest)
                 pred_word = np.argmax(probs, axis=1)
-                space_ind = len(que['sentence'])
+                space_ind = que['pos']
                 num += 1
+                answer = 'c'
+                if space_ind - 1 > 0:
+                    answer = max_prob_word(probs[space_ind-2,:], que, dictionary)
                 if num < 4:
                     print "==== %d ====" % num
-                    print [to_word(x[i]) for i in range(config.num_steps)]
-                    print [to_word(pred_word[i]) for i in range(config.num_steps) ]
+                    print ' '.join( [to_word(x[i]) for i in range(config.num_steps)] )
+                    print ' '.join( [to_word(pred_word[i]) for i in range(config.num_steps) ] )
                     print "Index : %d" % space_ind
-                answer = 'c'
-                if space_ind - 2 > 0:
-                    answer = max_prob_word(probs[space_ind-2,:], que, dictionary)
+                    print "Answer : %s" % que[answer]
                 row.append(que['id'])
                 row.append(answer)
                 writer.writerow(row)
