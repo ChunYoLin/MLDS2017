@@ -245,7 +245,7 @@ def TEST_data_to_id(word_to_id):
     for idx, line in enumerate(test_before):
         words = data_reader._list_to_word_ids(line, word_to_id)
         words_after = data_reader._list_to_word_ids(test_after[idx], word_to_id)
-        test_after.append(words_after)
+        test_data_after.append(words_after)
         test_data_before_len.append(len(words))
         words_opt = [[] for i in range(5)]
         for opt, t_ans in enumerate(test_answer[idx]):
@@ -260,21 +260,21 @@ def TEST_data_to_id(word_to_id):
 
     #  make every test data same length with zeros
     for line in test_data_add_ans:
-        for i in range(max_len - len(line) + 1):
+        for i in range(max_len - len(line)):
             line.append(0)
         for w in line:
             test_data_sync.append(w)
     test_data_sync.append(0)
 
     #  create a list contain the first word after the ______ in test sentence
-    for idx, line in enumerate(test_after):
-        word = data_reader._list_to_word_ids(line, word_to_id)
-        if word:
-            test_data_after.append(word[0])
-        else:
-            test_data_after.append(-1)
+    #  for idx, line in enumerate(test_after):
+        #  word = data_reader._list_to_word_ids(line, word_to_id)
+        #  if word:
+            #  test_data_after.append(word[0])
+        #  else:
+            #  test_data_after.append(-1)
 
-    return test_data_before_len, test_data_sync, test_after, test_answer, max_len
+    return test_data_before_len, test_data_sync, test_data_after, test_answer, max_len
 
 def main(_):
     train_config = MediumConfig()
@@ -298,62 +298,63 @@ def main(_):
 
     test_data_before_len, test_data_sync, test_data_after, test_answer, max_len = TEST_data_to_id(word_to_id)
     #  max_len = max(test_data_orig_len)
-    test_config.num_steps = max_len + 1
+    test_config.num_steps = max_len
     print "finish processing testing data"
 
-    #  with tf.Graph().as_default():
-        #  initializer = tf.random_uniform_initializer(-train_config.init_scale, train_config.init_scale)
-        #  with tf.name_scope("Train"):
-            #  train_input = lstm_input(config = train_config, data = train_data, name = "TrainInput")
-            #  with tf.variable_scope("Model", reuse = False, initializer = initializer):
-                #  m = lstm_model(is_training = True, config = train_config, input_ = train_input)
+    with tf.Graph().as_default():
+        initializer = tf.random_uniform_initializer(-train_config.init_scale, train_config.init_scale)
+        with tf.name_scope("Train"):
+            train_input = lstm_input(config = train_config, data = train_data, name = "TrainInput")
+            with tf.variable_scope("Model", reuse = False, initializer = initializer):
+                m = lstm_model(is_training = True, config = train_config, input_ = train_input)
 
-        #  with tf.name_scope("Test"):
-            #  test_input = lstm_input(config = test_config, data = test_data_sync, name = "TestInput")
-            #  with tf.variable_scope("Model", reuse = True, initializer = initializer):
-                #  mtest = lstm_model(is_training = False, config = test_config, input_ = test_input)
+        with tf.name_scope("Test"):
+            test_input = lstm_input(config = test_config, data = test_data_sync, name = "TestInput")
+            with tf.variable_scope("Model", reuse = True, initializer = initializer):
+                mtest = lstm_model(is_training = False, config = test_config, input_ = test_input)
 
-        #  sv = tf.train.Supervisor(logdir = "./model_checkpoints")
-        #  with sv.managed_session() as session:
-            #  for i in range(train_config.max_max_epoch):
-                #  lr_decay = train_config.lr_decay ** max(i + 1 - train_config.max_epoch, 0.)
-                #  m.assign_lr(session, train_config.learning_rate * lr_decay)
-                #  print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
-                #  train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
-                #  print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
+        sv = tf.train.Supervisor(logdir = "./model_checkpoints")
+        with sv.managed_session() as session:
+            for i in range(train_config.max_max_epoch):
+                lr_decay = train_config.lr_decay ** max(i + 1 - train_config.max_epoch, 0.)
+                m.assign_lr(session, train_config.learning_rate * lr_decay)
+                print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
+                train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
+                print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
 
-            #  probs = []
-            #  ans = np.zeros([mtest._input.epoch_size / 5, 5], np.float32)
-            #  for i in range(mtest._input.epoch_size / 5):
-                #  print("processing %d/%d"%((i + 1) * 5, mtest._input.epoch_size))
-                #  probs_option = []
-                #  for j in range(5):
-                    #  probs_option.append(run_predict(session, mtest))
-                #  probs.append(probs_option)
+            probs = []
+            ans = np.zeros([mtest._input.epoch_size / 5, 5], np.float32)
+            for i in range(mtest._input.epoch_size / 5):
+                print("processing %d/%d"%((i + 1) * 5, mtest._input.epoch_size))
+                probs_option = []
+                for j in range(5):
+                    probs_option.append(run_predict(session, mtest))
+                probs.append(probs_option)
             
-            #  for idx, before_len in enumerate(test_data_before_len):
-                #  for option_id, option in enumerate(test_answer[idx]):
-                    #  if option in word_to_id:
-                        #  prob_before = probs[idx][option_id][before_len - 1, word_to_id[option]]
-                        #  word_after = test_data_after[idx]
-                        #  prob_after = probs[idx][option_id][before_len, word_after]
-                        #  ans[idx, option_id] = prob_before * prob_after
-                    #  else:
-                        #  ans[idx, option_id] = 0.
-            #  with open('ans.csv', 'w') as f:
-                #  f.write("id,answer\n")
-                #  for idx, out in enumerate(ans):
-                    #  if idx > 0:
-                        #  if np.argmax(ans[idx]) == 0:
-                            #  f.write(str(idx) + ',a\n')
-                        #  elif np.argmax(ans[idx]) == 1:
-                            #  f.write(str(idx) + ',b\n')
-                        #  elif np.argmax(ans[idx]) == 2:
-                            #  f.write(str(idx) + ',c\n')
-                        #  elif np.argmax(ans[idx]) == 3:
-                            #  f.write(str(idx) + ',d\n')
-                        #  elif np.argmax(ans[idx]) == 4:
-                            #  f.write(str(idx) + ',a\n')
+            for idx, before_len in enumerate(test_data_before_len):
+                for option_id, option in enumerate(test_answer[idx]):
+                    if option in word_to_id:
+                        prob_before = probs[idx][option_id][before_len - 1, word_to_id[option]]
+                        prob_after = 1.
+                        for after_id, word_after in enumerate(test_data_after[idx]):
+                            prob_after *= probs[idx][option_id][before_len + after_id, word_after]
+                        ans[idx, option_id] = prob_before * prob_after
+                    else:
+                        ans[idx, option_id] = 0.
+            with open('ans.csv', 'w') as f:
+                f.write("id,answer\n")
+                for idx, out in enumerate(ans):
+                    if idx > 0:
+                        if np.argmax(ans[idx]) == 0:
+                            f.write(str(idx) + ',a\n')
+                        elif np.argmax(ans[idx]) == 1:
+                            f.write(str(idx) + ',b\n')
+                        elif np.argmax(ans[idx]) == 2:
+                            f.write(str(idx) + ',c\n')
+                        elif np.argmax(ans[idx]) == 3:
+                            f.write(str(idx) + ',d\n')
+                        elif np.argmax(ans[idx]) == 4:
+                            f.write(str(idx) + ',a\n')
                 
         
 if __name__ == "__main__":
