@@ -5,6 +5,7 @@ import time
 import csv
 import os
 import re
+import cPickle as pk
 
 class lstm_input(object):
   def __init__(self, config, data, name = None):
@@ -195,7 +196,7 @@ class MediumConfig(object):
     num_steps = 35
     hidden_size = 650
     max_epoch = 6
-    max_max_epoch = 10
+    max_max_epoch = 0
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 20
@@ -232,19 +233,8 @@ def TEST_data():
                 test_answer.append(line[2:])
     return test_question_before, test_question_after, test_answer
 
-def main(_):
-    train_config = MediumConfig()
-    test_config = MediumConfig()
-    test_config.batch_size = 1
-    
-    f_list = []
-    for file_id, filename in enumerate(os.listdir('./data/Holmes_Training_Data')):
-        if file_id < 500:
-            filename = './data/Holmes_Training_Data/' + filename
-            f_list.append(filename)
-    word_to_id = data_reader._build_multi_vocab(f_list, train_config.vocab_size)
-    inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
-    train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
+def TEST_data_to_id(word_to_id):
+
     test_before, test_after, test_answer = TEST_data()
     test_data_orig = []
     test_data_orig_len = []
@@ -252,45 +242,54 @@ def main(_):
     test_data_sync = []
     test_data_after = []
     max_len = 0
-
     #  create testing data, adding option into it
     for idx, line in enumerate(test_before):
         words = data_reader._list_to_word_ids(line, word_to_id)
+        words_after = data_reader._list_to_word_ids(test_after[idx])
         test_data_orig.append(words)
         test_data_orig_len.append(len(words))
-        if len(words) > max_len:
-            max_len = len(words)
         words_a = []
         words_b = []
         words_c = []
         words_d = []
         words_e = []
+        words_opt = [[] for i in range(5)]
         for opt, t_ans in enumerate(test_answer[idx]):
+            if t_ans in word_to_id:
+                words_opt[opt].extend(words + [word_to_id[t_ans]])
+            else:
+                words_opt[opt].extend(words + [0])
+
             if opt == 0:
                 if t_ans in word_to_id:
                     words_a.extend(words + [word_to_id[t_ans]])
                 else:
                     words_a.extend(words + [0])
+                words_a.extend(words_after)
             elif opt == 1:
                 if t_ans in word_to_id:
                     words_b.extend(words + [word_to_id[t_ans]])
                 else:
                     words_b.extend(words + [0])
+                words_b.extend(words_after)
             elif opt == 2:
                 if t_ans in word_to_id:
                     words_c.extend(words + [word_to_id[t_ans]])
                 else:
                     words_c.extend(words + [0])
+                words_c.extend(words_after)
             elif opt == 3:
                 if t_ans in word_to_id:
                     words_d.extend(words + [word_to_id[t_ans]])
                 else:
                     words_d.extend(words + [0])
+                words_d.extend(words_after)
             elif opt == 4:
                 if t_ans in word_to_id:
                     words_e.extend(words + [word_to_id[t_ans]])
                 else:
                     words_e.extend(words + [0])
+                words_e.extend(words_after)
         test_data_add_ans.append(words_a)
         test_data_add_ans.append(words_b)
         test_data_add_ans.append(words_c)
@@ -298,7 +297,6 @@ def main(_):
         test_data_add_ans.append(words_e)
 
     #  make every test data same length with zeros
-    test_config.num_steps = max_len + 1
     for line in test_data_add_ans:
         for i in range(max_len - len(line) + 1):
             line.append(0)
@@ -314,59 +312,86 @@ def main(_):
         else:
             test_data_after.append(-1)
 
-    with tf.Graph().as_default():
-        initializer = tf.random_uniform_initializer(-train_config.init_scale, train_config.init_scale)
-        with tf.name_scope("Train"):
-            train_input = lstm_input(config = train_config, data = train_data, name = "TrainInput")
-            with tf.variable_scope("Model", reuse = False, initializer = initializer):
-                m = lstm_model(is_training = True, config = train_config, input_ = train_input)
+    return test_data_orig_len, test_data_sync, test_after, test_answer
 
-        with tf.name_scope("Test"):
-            test_input = lstm_input(config = test_config, data = test_data_sync, name = "TestInput")
-            with tf.variable_scope("Model", reuse = True, initializer = initializer):
-                mtest = lstm_model(is_training = False, config = test_config, input_ = test_input)
+def main(_):
+    train_config = MediumConfig()
+    test_config = MediumConfig()
+    test_config.batch_size = 1
+    
+    f_list = []
+    for file_id, filename in enumerate(os.listdir('./data/Holmes_Training_Data')):
+        if file_id < 500:
+            filename = './data/Holmes_Training_Data/' + filename
+            f_list.append(filename)
+    #  word_to_id = data_reader._build_multi_vocab(f_list, train_config.vocab_size)
+    #  inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
+    with open('w2id_500P_12000V.pk', 'rb') as pickle_file:
+        word_to_id = pk.load(pickle_file)
+        inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
+    #  train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
+    with open('train_data_500P_12000V.pk', 'rb') as pickle_file:
+        train_data = pk.load(pickle_file)
+    print "finish loading training data"
 
-        sv = tf.train.Supervisor(logdir = "./model_checkpoints")
-        with sv.managed_session() as session:
-            for i in range(train_config.max_max_epoch):
-                lr_decay = train_config.lr_decay ** max(i + 1 - train_config.max_epoch, 0.)
-                m.assign_lr(session, train_config.learning_rate * lr_decay)
-                print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
-                train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
-                print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
+    test_data_orig_len, test_data_sync, test_data_after, test_answer = TEST_data_to_id(word_to_id)
+    #  max_len = max(test_data_orig_len)
+    #  test_config.num_steps = max_len + 1
+    #  print "finish processing testing data"
 
-            probs = []
-            ans = np.zeros([mtest._input.epoch_size / 5, 5], np.float32)
-            for i in range(mtest._input.epoch_size / 5):
-                print("processing %d/%d"%((i + 1) * 5, mtest._input.epoch_size))
-                probs_option = []
-                for j in range(5):
-                    probs_option.append(run_predict(session, mtest))
-                probs.append(probs_option)
+    #  with tf.Graph().as_default():
+        #  initializer = tf.random_uniform_initializer(-train_config.init_scale, train_config.init_scale)
+        #  with tf.name_scope("Train"):
+            #  train_input = lstm_input(config = train_config, data = train_data, name = "TrainInput")
+            #  with tf.variable_scope("Model", reuse = False, initializer = initializer):
+                #  m = lstm_model(is_training = True, config = train_config, input_ = train_input)
+
+        #  with tf.name_scope("Test"):
+            #  test_input = lstm_input(config = test_config, data = test_data_sync, name = "TestInput")
+            #  with tf.variable_scope("Model", reuse = True, initializer = initializer):
+                #  mtest = lstm_model(is_training = False, config = test_config, input_ = test_input)
+
+        #  sv = tf.train.Supervisor(logdir = "./model_checkpoints")
+        #  with sv.managed_session() as session:
+            #  for i in range(train_config.max_max_epoch):
+                #  lr_decay = train_config.lr_decay ** max(i + 1 - train_config.max_epoch, 0.)
+                #  m.assign_lr(session, train_config.learning_rate * lr_decay)
+                #  print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
+                #  train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
+                #  print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
+
+            #  probs = []
+            #  ans = np.zeros([mtest._input.epoch_size / 5, 5], np.float32)
+            #  for i in range(mtest._input.epoch_size / 5):
+                #  print("processing %d/%d"%((i + 1) * 5, mtest._input.epoch_size))
+                #  probs_option = []
+                #  for j in range(5):
+                    #  probs_option.append(run_predict(session, mtest))
+                #  probs.append(probs_option)
             
-            for idx, orig_len in enumerate(test_data_orig_len):
-                for option_id, option in enumerate(test_answer[idx]):
-                    if option in word_to_id:
-                        prob_before = probs[idx][option_id][orig_len - 1, word_to_id[option]]
-                        word_after = test_data_after[idx]
-                        prob_after = probs[idx][option_id][orig_len, word_after]
-                        ans[idx, option_id] = prob_before * prob_after
-                    else:
-                        ans[idx, option_id] = 0.
-            with open('ans.csv', 'w') as f:
-                f.write("id,answer\n")
-                for idx, out in enumerate(ans):
-                    if idx > 0:
-                        if np.argmax(ans[idx]) == 0:
-                            f.write(str(idx) + ',a\n')
-                        elif np.argmax(ans[idx]) == 1:
-                            f.write(str(idx) + ',b\n')
-                        elif np.argmax(ans[idx]) == 2:
-                            f.write(str(idx) + ',c\n')
-                        elif np.argmax(ans[idx]) == 3:
-                            f.write(str(idx) + ',d\n')
-                        elif np.argmax(ans[idx]) == 4:
-                            f.write(str(idx) + ',a\n')
+            #  for idx, orig_len in enumerate(test_data_orig_len):
+                #  for option_id, option in enumerate(test_answer[idx]):
+                    #  if option in word_to_id:
+                        #  prob_before = probs[idx][option_id][orig_len - 1, word_to_id[option]]
+                        #  word_after = test_data_after[idx]
+                        #  prob_after = probs[idx][option_id][orig_len, word_after]
+                        #  ans[idx, option_id] = prob_before * prob_after
+                    #  else:
+                        #  ans[idx, option_id] = 0.
+            #  with open('ans.csv', 'w') as f:
+                #  f.write("id,answer\n")
+                #  for idx, out in enumerate(ans):
+                    #  if idx > 0:
+                        #  if np.argmax(ans[idx]) == 0:
+                            #  f.write(str(idx) + ',a\n')
+                        #  elif np.argmax(ans[idx]) == 1:
+                            #  f.write(str(idx) + ',b\n')
+                        #  elif np.argmax(ans[idx]) == 2:
+                            #  f.write(str(idx) + ',c\n')
+                        #  elif np.argmax(ans[idx]) == 3:
+                            #  f.write(str(idx) + ',d\n')
+                        #  elif np.argmax(ans[idx]) == 4:
+                            #  f.write(str(idx) + ',a\n')
                 
         
 if __name__ == "__main__":
