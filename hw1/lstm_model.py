@@ -236,8 +236,7 @@ def TEST_data():
 def TEST_data_to_id(word_to_id):
 
     test_before, test_after, test_answer = TEST_data()
-    test_data_orig = []
-    test_data_orig_len = []
+    test_data_before_len = []
     test_data_add_ans = []
     test_data_sync = []
     test_data_after = []
@@ -245,56 +244,19 @@ def TEST_data_to_id(word_to_id):
     #  create testing data, adding option into it
     for idx, line in enumerate(test_before):
         words = data_reader._list_to_word_ids(line, word_to_id)
-        words_after = data_reader._list_to_word_ids(test_after[idx])
-        test_data_orig.append(words)
-        test_data_orig_len.append(len(words))
-        words_a = []
-        words_b = []
-        words_c = []
-        words_d = []
-        words_e = []
+        words_after = data_reader._list_to_word_ids(test_after[idx], word_to_id)
+        test_after.append(words_after)
+        test_data_before_len.append(len(words))
         words_opt = [[] for i in range(5)]
         for opt, t_ans in enumerate(test_answer[idx]):
             if t_ans in word_to_id:
                 words_opt[opt].extend(words + [word_to_id[t_ans]])
             else:
                 words_opt[opt].extend(words + [0])
-
-            if opt == 0:
-                if t_ans in word_to_id:
-                    words_a.extend(words + [word_to_id[t_ans]])
-                else:
-                    words_a.extend(words + [0])
-                words_a.extend(words_after)
-            elif opt == 1:
-                if t_ans in word_to_id:
-                    words_b.extend(words + [word_to_id[t_ans]])
-                else:
-                    words_b.extend(words + [0])
-                words_b.extend(words_after)
-            elif opt == 2:
-                if t_ans in word_to_id:
-                    words_c.extend(words + [word_to_id[t_ans]])
-                else:
-                    words_c.extend(words + [0])
-                words_c.extend(words_after)
-            elif opt == 3:
-                if t_ans in word_to_id:
-                    words_d.extend(words + [word_to_id[t_ans]])
-                else:
-                    words_d.extend(words + [0])
-                words_d.extend(words_after)
-            elif opt == 4:
-                if t_ans in word_to_id:
-                    words_e.extend(words + [word_to_id[t_ans]])
-                else:
-                    words_e.extend(words + [0])
-                words_e.extend(words_after)
-        test_data_add_ans.append(words_a)
-        test_data_add_ans.append(words_b)
-        test_data_add_ans.append(words_c)
-        test_data_add_ans.append(words_d)
-        test_data_add_ans.append(words_e)
+            words_opt[opt].extend(words_after)
+            test_data_add_ans.append(words_opt[opt])
+            if len(words_opt[opt]) > max_len:
+                max_len = len(words_opt[opt])
 
     #  make every test data same length with zeros
     for line in test_data_add_ans:
@@ -312,7 +274,7 @@ def TEST_data_to_id(word_to_id):
         else:
             test_data_after.append(-1)
 
-    return test_data_orig_len, test_data_sync, test_after, test_answer
+    return test_data_before_len, test_data_sync, test_after, test_answer, max_len
 
 def main(_):
     train_config = MediumConfig()
@@ -334,10 +296,10 @@ def main(_):
         train_data = pk.load(pickle_file)
     print "finish loading training data"
 
-    test_data_orig_len, test_data_sync, test_data_after, test_answer = TEST_data_to_id(word_to_id)
+    test_data_before_len, test_data_sync, test_data_after, test_answer, max_len = TEST_data_to_id(word_to_id)
     #  max_len = max(test_data_orig_len)
-    #  test_config.num_steps = max_len + 1
-    #  print "finish processing testing data"
+    test_config.num_steps = max_len + 1
+    print "finish processing testing data"
 
     #  with tf.Graph().as_default():
         #  initializer = tf.random_uniform_initializer(-train_config.init_scale, train_config.init_scale)
@@ -369,12 +331,12 @@ def main(_):
                     #  probs_option.append(run_predict(session, mtest))
                 #  probs.append(probs_option)
             
-            #  for idx, orig_len in enumerate(test_data_orig_len):
+            #  for idx, before_len in enumerate(test_data_before_len):
                 #  for option_id, option in enumerate(test_answer[idx]):
                     #  if option in word_to_id:
-                        #  prob_before = probs[idx][option_id][orig_len - 1, word_to_id[option]]
+                        #  prob_before = probs[idx][option_id][before_len - 1, word_to_id[option]]
                         #  word_after = test_data_after[idx]
-                        #  prob_after = probs[idx][option_id][orig_len, word_after]
+                        #  prob_after = probs[idx][option_id][before_len, word_after]
                         #  ans[idx, option_id] = prob_before * prob_after
                     #  else:
                         #  ans[idx, option_id] = 0.
