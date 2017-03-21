@@ -239,7 +239,7 @@ def main(_):
     
     f_list = []
     for file_id, filename in enumerate(os.listdir('./data/Holmes_Training_Data')):
-        if file_id < 100:
+        if file_id < 500:
             filename = './data/Holmes_Training_Data/' + filename
             f_list.append(filename)
     word_to_id = data_reader._build_multi_vocab(f_list, train_config.vocab_size)
