@@ -15,6 +15,7 @@ flags.DEFINE_string("get_input", "pk", "get input from raw file or pickle")
 flags.DEFINE_string("lstm_model", "./MODEL_500P_50000V/lstm_500P_50000V", "lstm model path")
 
 FLAGS = flags.FLAGS
+print FLAGS.train
 
 class lstm_input(object):
   def __init__(self, config, data, name = None):
@@ -204,7 +205,7 @@ class MediumConfig(object):
     num_steps = 35
     hidden_size = 650
     max_epoch = 6
-    max_max_epoch = 0
+    max_max_epoch = 10
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 20
@@ -215,7 +216,6 @@ def TEST_data():
     test_file = './data/testing_data.csv'
     with open(test_file)as f:
         test_reader = csv.reader(f, delimiter = ',')
-        test_question_all = []
         test_question_before = []
         test_question_after = []
         test_answer = []
@@ -237,7 +237,6 @@ def TEST_data():
 
                 test_question_before.append(line_before)
                 test_question_after.append(line_after)
-                #  test_question_all.append(line[1])
                 test_answer.append(line[2:])
     return test_question_before, test_question_after, test_answer
 
@@ -249,6 +248,7 @@ def TEST_data_to_id(word_to_id):
     test_data_sync = []
     test_data_after = []
     max_len = 0
+
     #  create testing data, adding option into it
     for idx, line in enumerate(test_before):
         words = data_reader._list_to_word_ids(line, word_to_id)
@@ -274,17 +274,10 @@ def TEST_data_to_id(word_to_id):
             test_data_sync.append(w)
     test_data_sync.append(0)
 
-    #  create a list contain the first word after the ______ in test sentence
-    #  for idx, line in enumerate(test_after):
-        #  word = data_reader._list_to_word_ids(line, word_to_id)
-        #  if word:
-            #  test_data_after.append(word[0])
-        #  else:
-            #  test_data_after.append(-1)
-
     return test_data_before_len, test_data_sync, test_data_after, test_answer, max_len
 
 def main(_):
+
     train_config = MediumConfig()
     test_config = MediumConfig()
     test_config.batch_size = 1
@@ -340,6 +333,7 @@ def main(_):
                 train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
                 print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
 
+            #  predicting test data
             ans = np.zeros([mtest._input.epoch_size / 5, 5], np.float32)
             for i in range(mtest._input.epoch_size / 5):
                 probs = []
@@ -370,7 +364,6 @@ def main(_):
                             f.write(str(idx) + ',d\n')
                         elif np.argmax(ans[idx]) == 4:
                             f.write(str(idx) + ',a\n')
-                
         
 if __name__ == "__main__":
     tf.app.run()
