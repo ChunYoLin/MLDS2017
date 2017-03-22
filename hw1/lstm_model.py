@@ -196,7 +196,7 @@ class MediumConfig(object):
     num_steps = 35
     hidden_size = 650
     max_epoch = 6
-    max_max_epoch = 2
+    max_max_epoch = 0
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 20
@@ -289,9 +289,9 @@ def main(_):
     #  word_to_id = data_reader._build_multi_vocab(f_list, train_config.vocab_size)
     #  inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
     with open('./MODEL_500P_50000V/w2id_500P_50000V.pk', 'rb') as pickle_file:
-        word_to_id = pk.dump(pickle_file)
+        word_to_id = pk.load(pickle_file)
         inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
-    train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
+    #  train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
     with open('./MODEL_500P_50000V/train_data_500P_50000V.pk', 'rb') as pickle_file:
         train_data = pk.load(pickle_file)
 
@@ -319,25 +319,22 @@ def main(_):
                 train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
                 print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
 
-            probs = []
             ans = np.zeros([mtest._input.epoch_size / 5, 5], np.float32)
             for i in range(mtest._input.epoch_size / 5):
-                print("processing %d/%d"%((i + 1) * 5, mtest._input.epoch_size))
-                probs_option = []
+                probs = []
                 for j in range(5):
-                    probs_option.append(run_predict(session, mtest))
-                probs.append(probs_option)
-            
-            for idx, before_len in enumerate(test_data_before_len):
-                for option_id, option in enumerate(test_answer[idx]):
+                    probs.append(run_predict(session, mtest))
+                before_len = test_data_before_len[i]
+                for option_id, option in enumerate(test_answer[i]):
                     if option in word_to_id:
-                        prob_before = probs[idx][option_id][before_len - 1, word_to_id[option]]
+                        prob_before = probs[option_id][before_len - 1, word_to_id[option]]
                         prob_after = 1.
-                        for after_id, word_after in enumerate(test_data_after[idx]):
-                            prob_after *= probs[idx][option_id][before_len + after_id, word_after]
-                        ans[idx, option_id] = prob_before * prob_after
+                        for after_id, word_after in enumerate(test_data_after[i]):
+                            prob_after *= probs[option_id][before_len + after_id, word_after]
+                        ans[i, option_id] = prob_before * prob_after
                     else:
-                        ans[idx, option_id] = 0.
+                        ans[i, option_id] = 0.
+                print("processing %d/%d"%((i + 1) * 5, mtest._input.epoch_size))
             with open('ans.csv', 'w') as f:
                 f.write("id,answer\n")
                 for idx, out in enumerate(ans):
