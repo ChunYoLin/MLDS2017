@@ -196,11 +196,11 @@ class MediumConfig(object):
     num_steps = 35
     hidden_size = 650
     max_epoch = 6
-    max_max_epoch = 0
+    max_max_epoch = 2
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 20
-    vocab_size = 12000
+    vocab_size = 50000
 
 
 def TEST_data():
@@ -281,25 +281,22 @@ def main(_):
     test_config = MediumConfig()
     test_config.batch_size = 1
     
-    f_list = []
-    for file_id, filename in enumerate(os.listdir('./data/Holmes_Training_Data')):
-        if file_id < 500:
-            filename = './data/Holmes_Training_Data/' + filename
-            f_list.append(filename)
+    #  f_list = []
+    #  for file_id, filename in enumerate(os.listdir('./data/Holmes_Training_Data')):
+        #  if file_id < 500:
+            #  filename = './data/Holmes_Training_Data/' + filename
+            #  f_list.append(filename)
     #  word_to_id = data_reader._build_multi_vocab(f_list, train_config.vocab_size)
     #  inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
-    with open('w2id_500P_12000V.pk', 'rb') as pickle_file:
-        word_to_id = pk.load(pickle_file)
+    with open('./MODEL_500P_50000V/w2id_500P_50000V.pk', 'rb') as pickle_file:
+        word_to_id = pk.dump(pickle_file)
         inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
-    #  train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
-    with open('train_data_500P_12000V.pk', 'rb') as pickle_file:
+    train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
+    with open('./MODEL_500P_50000V/train_data_500P_50000V.pk', 'rb') as pickle_file:
         train_data = pk.load(pickle_file)
-    print "finish loading training data"
 
     test_data_before_len, test_data_sync, test_data_after, test_answer, max_len = TEST_data_to_id(word_to_id)
-    #  max_len = max(test_data_orig_len)
     test_config.num_steps = max_len
-    print "finish processing testing data"
 
     with tf.Graph().as_default():
         initializer = tf.random_uniform_initializer(-train_config.init_scale, train_config.init_scale)
@@ -313,7 +310,7 @@ def main(_):
             with tf.variable_scope("Model", reuse = True, initializer = initializer):
                 mtest = lstm_model(is_training = False, config = test_config, input_ = test_input)
 
-        sv = tf.train.Supervisor(logdir = "./model_checkpoints")
+        sv = tf.train.Supervisor(logdir = "./MODEL_500P_50000V/lstm_500P_50000V")
         with sv.managed_session() as session:
             for i in range(train_config.max_max_epoch):
                 lr_decay = train_config.lr_decay ** max(i + 1 - train_config.max_epoch, 0.)
