@@ -7,12 +7,20 @@ import os
 import re
 import cPickle as pk
 
+flags = tf.flags
+flags.DEFINE_bool("train", False, "Train the model from begging")
+flags.DEFINE_integer("posts", 500, "Train the model from begging")
+flags.DEFINE_integer("vocab_size", 50000, "Train the model from begging")
+flags.DEFINE_string("get_input", "pk", "get input from raw file or pickle")
+flags.DEFINE_string("lstm_model", "./MODEL_500P_50000V/lstm_500P_50000V", "lstm model path")
+
+FLAGS = flags.FLAGS
+
 class lstm_input(object):
   def __init__(self, config, data, name = None):
     self.batch_size = batch_size = config.batch_size
     self.num_steps = num_steps = config.num_steps
     self.epoch_size = ((len(data) // batch_size) - 1) // num_steps
-    print self.epoch_size
     self.input_data, self.targets = data_reader.Data_producer(
         data, batch_size, num_steps, name = name)
 
@@ -280,20 +288,31 @@ def main(_):
     train_config = MediumConfig()
     test_config = MediumConfig()
     test_config.batch_size = 1
-    
-    #  f_list = []
-    #  for file_id, filename in enumerate(os.listdir('./data/Holmes_Training_Data')):
-        #  if file_id < 500:
-            #  filename = './data/Holmes_Training_Data/' + filename
-            #  f_list.append(filename)
-    #  word_to_id = data_reader._build_multi_vocab(f_list, train_config.vocab_size)
-    #  inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
-    with open('./MODEL_500P_50000V/w2id_500P_50000V.pk', 'rb') as pickle_file:
-        word_to_id = pk.load(pickle_file)
+
+    #  getting data from raw
+    train_config.vocab_size = FLAGS.vocab_size
+    test_config.vocab_size = FLAGS.vocab_size
+    if FLAGS.get_input == "raw":
+        f_list = []
+        for file_id, filename in enumerate(os.listdir('./data/Holmes_Training_Data')):
+            if file_id < FLAGS.posts:
+                filename = './data/Holmes_Training_Data/' + filename
+                f_list.append(filename)
+        word_to_id = data_reader._build_multi_vocab(f_list, train_config.vocab_size)
         inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
-    #  train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
-    with open('./MODEL_500P_50000V/train_data_500P_50000V.pk', 'rb') as pickle_file:
-        train_data = pk.load(pickle_file)
+        train_data = data_reader._multi_file_to_word_ids(f_list, word_to_id)
+        with open('MODEL_%dP_%dV/w2id.pk'%(FLAGS.posts, FLAGS.vocab_size), 'wb') as pickle_file:
+            pk.dump(word_to_id, pickle_file)
+        with open('MODEL_%dP_%dV/train_data.pk'%(FLAGS.posts, FLAGS.vocab_size), 'wb') as pickle_file:
+            pk.dump(train_data, pickle_file)
+
+    #  getting data from pickle file
+    elif FLAGS.get_input == "pk":
+        with open('MODEL_%dP_%dV/w2id.pk'%(FLAGS.posts, FLAGS.vocab_size), 'rb') as pickle_file:
+            word_to_id = pk.load(pickle_file)
+            inv_word_to_id = dict(zip(word_to_id.values(), word_to_id.keys()))
+        with open('MODEL_%dP_%dV/train_data.pk'%(FLAGS.posts, FLAGS.vocab_size), 'rb') as pickle_file:
+            train_data = pk.load(pickle_file)
 
     test_data_before_len, test_data_sync, test_data_after, test_answer, max_len = TEST_data_to_id(word_to_id)
     test_config.num_steps = max_len
@@ -310,7 +329,9 @@ def main(_):
             with tf.variable_scope("Model", reuse = True, initializer = initializer):
                 mtest = lstm_model(is_training = False, config = test_config, input_ = test_input)
 
-        sv = tf.train.Supervisor(logdir = "./MODEL_500P_50000V/lstm_500P_50000V")
+        if not FLAGS.train:
+            train_config.max_max_epoch = 0
+        sv = tf.train.Supervisor(logdir = FLAGS.lstm_model)
         with sv.managed_session() as session:
             for i in range(train_config.max_max_epoch):
                 lr_decay = train_config.lr_decay ** max(i + 1 - train_config.max_epoch, 0.)
