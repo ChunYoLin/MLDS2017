@@ -35,7 +35,8 @@ class lstm_model():
         vocab_size = config.vocab_size
 
         def lstm_cell():
-            return tf.contrib.rnn.BasicLSTMCell(size, forget_bias = 0., state_is_tuple = True)
+            #  return tf.contrib.rnn.BasicLSTMCell(size, forget_bias = 0., state_is_tuple = True)
+            return tf.contrib.rnn.LSTMCell(size, use_peepholes = True, forget_bias = 0., state_is_tuple = True)
         cell = tf.contrib.rnn.MultiRNNCell(
                 [lstm_cell() for _ in range(config.num_layers)], state_is_tuple = True)
 
@@ -205,7 +206,7 @@ class MediumConfig(object):
     num_steps = 35
     hidden_size = 650
     max_epoch = 6
-    max_max_epoch = 10
+    max_max_epoch = 2
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 20
