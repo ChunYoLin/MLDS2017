@@ -123,9 +123,9 @@ def train_rnn():
                               global_step = tf.contrib.framework.get_or_create_global_step())
 
     with tf.Session() as sess:
-        saver = tf.train.Saver()
         sess.run(tf.global_variables_initializer())
- 
+        saver = tf.train.Saver(tf.global_variables())        
+
         print '= Training ='
         while epoch > 0:
             while len(new_sentences) > data_index + 1:
