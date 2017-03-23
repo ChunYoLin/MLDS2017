@@ -8,7 +8,7 @@ import csv
 batch_size = 1
 n_inputs = 100 
 n_steps = 30
-n_hidden_units = 256 
+n_hidden_units = 240 
 num_layers = 2
 
 model = gensim.models.Word2Vec.load('./word2vec_model')
@@ -84,12 +84,13 @@ def predict():
     next(reader, None)
     
     with tf.Session() as sess:    
-        saver = tf.train.Saver()
-        saver = tf.train.import_meta_graph('training_model.meta')
-        saver.restore(sess, tf.train.latest_checkpoint('./'))
         sess.run(tf.global_variables_initializer())
         
-        #state_ = sess.run(lstm_cell.zero_state(1, tf.float32))
+        saver = tf.train.Saver(tf.global_variables())
+        saver = tf.train.import_meta_graph('training_model.meta')
+        saver.restore(sess, tf.train.latest_checkpoint('./'))
+        
+        state_ = sess.run(lstm_cell.zero_state(1, tf.float32))
         
         max_line = 0
         for row in reader:
@@ -141,10 +142,10 @@ def predict():
                 embd_question[0, question_word_idx] = model[option[i]] 
                 parse_question[question_word_idx] = option[i]
             
-                test_prob, state_ = sess.run([probs, init_state], 
+                test_prob, _ = sess.run([probs, init_state], 
                                          feed_dict = {x: embd_question,
-                                                      keep_prob: 1})
-                                                      #init_state: state_})
+                                                      keep_prob: 1,
+                                                      init_state: state_})
                 
                 if question[question_word_idx + 1] not in dictionary:
                     question[question_word_idx + 1] = 'UNK'
