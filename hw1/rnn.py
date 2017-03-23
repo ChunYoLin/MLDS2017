@@ -10,8 +10,9 @@ data_index = 0
 batch_size = 20
 n_inputs = 100
 n_steps = 30
-n_hidden_units = 256
+n_hidden_units = 240
 epoch = 2
+num_layers = 2
 
 model = gensim.models.Word2Vec.load('./word2vec_model')
 
@@ -66,8 +67,9 @@ biases = {
     'out': tf.Variable(tf.constant(0.1, shape = [vocabulary_size, ]))
 }
 
-def RNN(X, weights, biases, batch_size):
+def RNN(X, weights, biases, batch_size, keep_prob):
     global n_hidden_units
+    global num_layers
     # X ==> (20 batch * max_len steps,  100 inputs)
     X = tf.reshape(X, [-1, n_inputs])
     X = tf.nn.dropout(X, keep_prob)
@@ -82,14 +84,18 @@ def RNN(X, weights, biases, batch_size):
                                              forget_bias = 0.0, 
                                              state_is_tuple = True)
     
-    # lstm cell is divided into two parts (c_state, h_state)
+    lstm_cell = tf.contrib.rnn.DropoutWrapper(
+            lstm_cell, output_keep_prob = keep_prob)
     
+    lstm_cell = tf.contrib.rnn.MultiRNNCell([lstm_cell] * num_layers, state_is_tuple=True)
+     
+    # lstm cell is divided into two parts (c_state, h_state)  
     init_state = lstm_cell.zero_state(batch_size, dtype = tf.float32)
 
     outputs, final_state = tf.nn.dynamic_rnn(lstm_cell,
                                              X_in, 
-                                             initial_state = init_state) 
-                                             #time_major = False)
+                                             initial_state = init_state, 
+                                             time_major = False)
     outputs = tf.reshape(outputs,[-1, n_hidden_units])
     logits = tf.matmul(outputs, weights['out']) + biases['out']
     probs = tf.nn.softmax(logits)
@@ -103,7 +109,7 @@ def train_rnn():
     global new_sentences
     global epoch
 
-    logits, probs, lstm_cell, init_state = RNN(x, weights, biases, batch_size)
+    logits, probs, lstm_cell, init_state = RNN(x, weights, biases, batch_size, keep_prob)
     loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
             [logits],
             [tf.reshape(y, [-1])],
@@ -111,9 +117,11 @@ def train_rnn():
     cost = tf.reduce_mean(loss)
     tvars = tf.trainable_variables()
     grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 5)
-    optimizer = tf.train.AdamOptimizer(1e-3)
-    train_op = optimizer.apply_gradients(zip(grads, tvars))
-    
+    optimizer = tf.train.AdamOptimizer(0.8)
+    train_op = optimizer.apply_gradients(
+                              zip(grads, tvars),
+                              global_step = tf.contrib.framework.get_or_create_global_step())
+
     with tf.Session() as sess:
         saver = tf.train.Saver()
         sess.run(tf.global_variables_initializer())
