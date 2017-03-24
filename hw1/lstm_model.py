@@ -206,7 +206,7 @@ class SmallConfig(object):
 class MediumConfig(object):
     """Medium config."""
     init_scale = 0.05
-    learning_rate = 0.05
+    learning_rate = 0.005
     max_grad_norm = 5
     num_layers = 2
     num_steps = 35
