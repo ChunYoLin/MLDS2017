@@ -6,6 +6,7 @@ import csv
 import os
 import re
 import cPickle as pk
+import progressbar
 
 flags = tf.flags
 flags.DEFINE_bool("train", False, "Train the model from begging")
@@ -137,8 +138,13 @@ def run_epoch(session, model, eval_op = None, verbose = False):
     }
     if eval_op is not None:
         fetches["eval_op"] = eval_op
-    
-    for step in range(model.input.epoch_size):
+
+    bar = progressbar.ProgressBar(widgets=[
+        ' [', progressbar.Timer(), '] ',
+        progressbar.Bar(),
+        ' (', progressbar.ETA(), ') ',
+    ])
+    for step in bar(range(model.input.epoch_size)):
         feed_dict = {}
         for i, (c, h) in enumerate(model.initial_state):
             feed_dict[c] = state[i].c
@@ -151,9 +157,9 @@ def run_epoch(session, model, eval_op = None, verbose = False):
         iters += model.input.num_steps
 
         if verbose and step % (model.input.epoch_size // 10) == 10:
-          print("%.3f perplexity: %.3f speed: %.0f wps" %
-                (step * 1.0 / model.input.epoch_size, np.exp(costs / iters),
-                 iters * model.input.batch_size / (time.time() - start_time)))
+            print("%.3f perplexity: %.3f speed: %.0f wps" %
+            (step * 1.0 / model.input.epoch_size, np.exp(costs / iters),
+            iters * model.input.batch_size / (time.time() - start_time)))
     return np.exp(costs / iters)
 
 def run_predict(session, model, eval_op = None, verbose = False):
@@ -200,13 +206,13 @@ class SmallConfig(object):
 class MediumConfig(object):
     """Medium config."""
     init_scale = 0.05
-    learning_rate = 1.0
+    learning_rate = 0.05
     max_grad_norm = 5
     num_layers = 2
     num_steps = 35
     hidden_size = 650
-    max_epoch = 6
-    max_max_epoch = 2
+    max_epoch = 0
+    max_max_epoch = 3
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 20
