@@ -208,13 +208,13 @@ class SmallConfig(object):
 class MediumConfig(object):
     """Medium config."""
     init_scale = 0.05
-    learning_rate = 0.005
+    learning_rate = 0.00002
     max_grad_norm = 5
     num_layers = 2
     num_steps = 35
     hidden_size = 650
-    max_epoch = 0
-    max_max_epoch = 3
+    max_epoch = 40
+    max_max_epoch = 5
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 20
