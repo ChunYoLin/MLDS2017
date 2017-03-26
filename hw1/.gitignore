@@ -1,2 +1,5 @@
 data/
 MODEL*
+*pyc
+*csv
+
