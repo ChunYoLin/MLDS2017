@@ -14,9 +14,11 @@ flags.DEFINE_integer("posts", 500, "Train the model from begging")
 flags.DEFINE_integer("vocab_size", 50000, "Train the model from begging")
 flags.DEFINE_string("get_input", "pk", "get input from raw file or pickle")
 flags.DEFINE_string("lstm_model", "./MODEL_500P_50000V/lstm_500P_50000V", "lstm model path")
+flags.DEFINE_string("test_path", None, "testing file path")
+flags.DEFINE_string("out", None, "output file")
 
 FLAGS = flags.FLAGS
-print FLAGS.train
+print "Train:", FLAGS.train
 
 class lstm_input(object):
   def __init__(self, config, data, name = None):
@@ -36,8 +38,8 @@ class lstm_model():
         vocab_size = config.vocab_size
 
         def lstm_cell():
-            #  return tf.contrib.rnn.BasicLSTMCell(size, forget_bias = 0., state_is_tuple = True)
-            return tf.contrib.rnn.LSTMCell(size, use_peepholes = True, forget_bias = 0., state_is_tuple = True)
+            return tf.contrib.rnn.BasicLSTMCell(size, forget_bias = 0., state_is_tuple = True)
+            #  return tf.contrib.rnn.LSTMCell(size, use_peepholes = True, forget_bias = 0., state_is_tuple = True)
         cell = tf.contrib.rnn.MultiRNNCell(
                 [lstm_cell() for _ in range(config.num_layers)], state_is_tuple = True)
 
@@ -220,7 +222,7 @@ class MediumConfig(object):
 
 
 def TEST_data():
-    test_file = './data/testing_data.csv'
+    test_file = FLAGS.test_path
     with open(test_file)as f:
         test_reader = csv.reader(f, delimiter = ',')
         test_question_before = []
@@ -319,6 +321,7 @@ def main(_):
 
     with tf.Graph().as_default():
         initializer = tf.random_uniform_initializer(-train_config.init_scale, train_config.init_scale)
+        print "building model....."
         with tf.name_scope("Train"):
             train_input = lstm_input(config = train_config, data = train_data, name = "TrainInput")
             with tf.variable_scope("Model", reuse = False, initializer = initializer):
@@ -328,7 +331,7 @@ def main(_):
             test_input = lstm_input(config = test_config, data = test_data_sync, name = "TestInput")
             with tf.variable_scope("Model", reuse = True, initializer = initializer):
                 mtest = lstm_model(is_training = False, config = test_config, input_ = test_input)
-
+        print "finish building model"
         if not FLAGS.train:
             train_config.max_max_epoch = 0
         sv = tf.train.Supervisor(logdir = FLAGS.lstm_model)
@@ -356,8 +359,8 @@ def main(_):
                         ans[i, option_id] = prob_before * prob_after
                     else:
                         ans[i, option_id] = 0.
-                print("processing %d/%d"%((i + 1) * 5, mtest._input.epoch_size))
-            with open('ans.csv', 'w') as f:
+                print("processing testing data %d/%d"%((i + 1), mtest._input.epoch_size / 5))
+            with open(FLAGS.out, 'w') as f:
                 f.write("id,answer\n")
                 for idx, out in enumerate(ans):
                     if idx > 0:
@@ -371,6 +374,9 @@ def main(_):
                             f.write(str(idx) + ',d\n')
                         elif np.argmax(ans[idx]) == 4:
                             f.write(str(idx) + ',a\n')
+            print "finish writing answer to %s"%FLAGS.out
+            
+
         
 if __name__ == "__main__":
     tf.app.run()
