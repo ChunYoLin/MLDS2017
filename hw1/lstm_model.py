@@ -208,7 +208,7 @@ class SmallConfig(object):
 class MediumConfig(object):
     """Medium config."""
     init_scale = 0.05
-    learning_rate = 0.00002
+    learning_rate = 0.5
     max_grad_norm = 5
     num_layers = 2
     num_steps = 35
@@ -287,8 +287,8 @@ def TEST_data_to_id(word_to_id):
 
 def main(_):
 
-    train_config = MediumConfig()
-    test_config = MediumConfig()
+    train_config = SmallConfig()
+    test_config = SmallConfig()
     test_config.batch_size = 1
 
     #  getting data from raw
@@ -319,7 +319,8 @@ def main(_):
     test_data_before_len, test_data_sync, test_data_after, test_answer, max_len = TEST_data_to_id(word_to_id)
     test_config.num_steps = max_len
 
-    with tf.Graph().as_default():
+    g = tf.Graph()
+    with g.as_default():
         initializer = tf.random_uniform_initializer(-train_config.init_scale, train_config.init_scale)
         print "building model....."
         with tf.name_scope("Train"):
@@ -334,7 +335,7 @@ def main(_):
         print "finish building model"
         if not FLAGS.train:
             train_config.max_max_epoch = 0
-        sv = tf.train.Supervisor(logdir = FLAGS.lstm_model)
+        sv = tf.train.Supervisor(logdir = FLAGS.lstm_model, summary_op = None)
         with sv.managed_session() as session:
             for i in range(train_config.max_max_epoch):
                 lr_decay = train_config.lr_decay ** max(i + 1 - train_config.max_epoch, 0.)
@@ -342,7 +343,6 @@ def main(_):
                 print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
                 train_perplexity = run_epoch(session, m, eval_op = m._train_op, verbose = True)
                 print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
-
             #  predicting test data
             ans = np.zeros([mtest._input.epoch_size / 5, 5], np.float32)
             for i in range(mtest._input.epoch_size / 5):
@@ -375,7 +375,7 @@ def main(_):
                         elif np.argmax(ans[idx]) == 4:
                             f.write(str(idx) + ',a\n')
             print "finish writing answer to %s"%FLAGS.out
-            
+                
 
         
 if __name__ == "__main__":

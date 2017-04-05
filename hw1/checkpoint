@@ -1,0 +1,6 @@
+model_checkpoint_path: "EPOCH_4-4"
+all_model_checkpoint_paths: "EPOCH_0-0"
+all_model_checkpoint_paths: "EPOCH_1-1"
+all_model_checkpoint_paths: "EPOCH_2-2"
+all_model_checkpoint_paths: "EPOCH_3-3"
+all_model_checkpoint_paths: "EPOCH_4-4"
