@@ -31,7 +31,6 @@ class lstm_input(object):
 class lstm_model():
     def __init__(self, is_training, config, input_):
         self._input = input_
-
         batch_size = input_.batch_size
         num_steps = input_.num_steps
         size = config.hidden_size
@@ -49,16 +48,7 @@ class lstm_model():
             embedding = tf.get_variable(
                     "embedding", [vocab_size, size], dtype = tf.float32)
             inputs = tf.nn.embedding_lookup(embedding, input_.input_data)
-        outputs = []
-        state = self._initial_state
-        with tf.variable_scope("RNN"):
-            for time_step in range(num_steps):
-                if time_step > 0:
-                    tf.get_variable_scope().reuse_variables()
-                (cell_output, state) = cell(inputs[:, time_step, :], state)
-                outputs.append(cell_output)
-            
-        
+        outputs, state = tf.nn.dynamic_rnn(cell = cell, inputs = inputs, initial_state = self._initial_state)
         output = tf.reshape(tf.concat(axis = 1, values = outputs), [-1, size])
         softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype = tf.float32)
         softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype = tf.float32)
