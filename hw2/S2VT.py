@@ -1,29 +1,33 @@
 import tensorflow as tf
 import numpy as np
 import data_reader
+import time
 
 class S2VT_input(object):
-  def __init__(self, frame_data, text_data, sent_len, word_id, name = None):
-    batch_size = 1
+  def __init__(self, frame_data, text_data, sent_len, orig_sent_len, word_id, batch_size, name = None):
     self.frame_len = 80
     self.sent_len = sent_len
     self.vocab_size = len(word_id)
     self.batch_size = batch_size
     self.num_steps = self.frame_len + self.sent_len
     self.epoch_size = len(frame_data) // batch_size
-    self.input_batch, self.targets_batch = data_reader.Data_producer(
+    self.word_id = word_id
+    self.input_batch, self.targets_batch, self.orig_sent_len = data_reader.Data_producer(
             frame_data = frame_data, 
             text_data = text_data, 
             batch_size = batch_size, 
-            sent_len = sent_len)
+            sent_len = sent_len,
+            orig_sent_len = orig_sent_len)
 
 class S2VT_model(object):
     def __init__(self, is_training, input_):
+        self._input = input_
         size = 256
         def lstm_cell():
             return tf.contrib.rnn.LSTMCell(size, forget_bias = 0., state_is_tuple = True)
         frame_len = input_.frame_len
         sent_len = input_.sent_len
+        self._orig_sent_len = input_.orig_sent_len[0]
         vocab_size = input_.vocab_size
         batch_size = input_.batch_size
         num_steps = frame_len + sent_len
@@ -31,6 +35,7 @@ class S2VT_model(object):
         cell_top = lstm_cell()
         input_frame = input_.input_batch
         top_state_in = cell_top.zero_state(batch_size, tf.float32)
+        self._top_init_state = top_state_in
         top_outputs = []
         with tf.variable_scope("top_cell"):
             for time_step in range(num_steps):
@@ -48,15 +53,17 @@ class S2VT_model(object):
         #  bot
         cell_bot = lstm_cell()
         bot_state_in = cell_bot.zero_state(batch_size, tf.float32)
+        self._bot_init_state = bot_state_in
         bot_final_state = cell_bot.zero_state(batch_size, tf.float32)
         bot_outputs = []
+        bot_output_word = []
+        softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype = tf.float32)
+        softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype = tf.float32)
         with tf.variable_scope("bot_cell"):
             #  embedding
             with tf.device("cpu:0"):
                 embedding = tf.get_variable(
                         "embedding", [vocab_size, size], dtype = tf.float32)
-                word_vec = tf.nn.embedding_lookup(embedding, input_.targets_batch)
-                print word_vec.shape
             for time_step in range(num_steps):
                 if time_step > 0:
                     tf.get_variable_scope().reuse_variables()
@@ -65,24 +72,36 @@ class S2VT_model(object):
                     (bot_output, bot_state_out) = cell_bot(bot_input, bot_state_in)
                     bot_state_in = bot_state_out
                 else:
-                    text_input = word_vec[:, time_step - 80, :]
-                    top_cell_input = tf.reshape(top_outputs[time_step][0][size:], [1, size])
-                    bot_input = tf.concat([text_input, top_cell_input],1)
+                    if time_step == frame_len:
+                        embed_idx = [input_.word_id["BOS"] for _ in range(batch_size)]
+                    else:
+                        embed_idx =  tf.argmax(bot_probs, 1)
+                        bot_output_word.append(embed_idx)
+                    text_input = tf.nn.embedding_lookup(embedding, embed_idx)
+                    top_cell_input = tf.reshape(top_outputs[time_step][:, size:], [batch_size, size])
+                    bot_input = tf.concat([text_input, top_cell_input], 1)
                     (bot_output, bot_state_out) = cell_bot(bot_input, bot_state_in)
+                    bot_logits = tf.matmul(bot_output, softmax_w) + softmax_b
+                    bot_probs = tf.nn.softmax(bot_logits)
                     bot_state_in = bot_state_out
                     bot_final_state = bot_state_out
                     bot_outputs.append(bot_output)
 
         output = tf.reshape(tf.concat(axis = 1, values = bot_outputs), [-1, size])
-        softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype = tf.float32)
-        softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype = tf.float32)
         logits = tf.matmul(output, softmax_w) + softmax_b
+        self._final_output_word = bot_output_word
         if not is_training:
             return
+        #  loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
+                #  [logits],
+                #  [tf.reshape(input_.targets_batch[:, 1:], [-1])],
+                #  [tf.ones([batch_size * sent_len], dtype = tf.float32)])
+        print input_.targets_batch.shape
+
         loss = tf.nn.sampled_softmax_loss(
                 weights = tf.transpose(softmax_w), 
                 biases = softmax_b, 
-                labels = tf.reshape(input_.targets, [-1, 1]), 
+                labels = tf.reshape(input_.targets_batch, [-1, 1]), 
                 inputs = output, 
                 num_sampled = 64,
                 num_classes = vocab_size)
@@ -93,18 +112,35 @@ class S2VT_model(object):
         self._final_probs = tf.nn.softmax(logits)
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 5)
-        optimizer = tf.train.AdamOptimizer(0.01)
-        self.train_op = optimizer.apply_gradients(
+        optimizer = tf.train.AdamOptimizer(0.0001)
+        #  self._train_op = optimizer.minimize(cost)
+        self._train_op = optimizer.apply_gradients(
                 zip(grads, tvars),
                 global_step = tf.contrib.framework.get_or_create_global_step())
 
     @property
-    def initial_state(self):
-        return self._initial_state
+    def input(self):
+        return self._input
+
+    @property
+    def orig_sent_len(self):
+        return self._orig_sent_len
+
+    @property
+    def top_init_state(self):
+        return self._top_init_state
+    
+    @property
+    def bot_init_state(self):
+        return self._bot_init_state
 
     @property
     def cost(self):
         return self._cost
+
+    @property
+    def train_op(self):
+        return self._train_op
 
     @property
     def final_state(self):
@@ -118,11 +154,16 @@ class S2VT_model(object):
     def final_probs(self):
         return self._final_probs
 
+    @property
+    def final_output_word(self):
+        return self._final_output_word
+
 def run_epoch(session, model, eval_op = None, verbose = False):
     start_time = time.time()
     costs = 0.
     iters = 0
-    state = session.run(model.initial_state)
+    top_state = session.run(model.top_init_state)
+    bot_state = session.run(model.bot_init_state)
 
     fetches = {
         "cost": model.cost,
@@ -132,29 +173,83 @@ def run_epoch(session, model, eval_op = None, verbose = False):
         fetches["eval_op"] = eval_op
 
     for step in range(model.input.epoch_size):
+        print session.run(model.orig_sent_len)
         feed_dict = {}
-        for i, (c, h) in enumerate(model.initial_state):
-            feed_dict[c] = state[i].c
-            feed_dict[h] = state[i].h
-        
+        #  for i, (c, h) in enumerate(model.top_init_state):
+            #  feed_dict[c] = top_state[i].c
+            #  feed_dict[h] = top_state[i].h
+
+        #  for i, (c, h) in enumerate(model.bot_init_state):
+            #  feed_dict[c] = bot_state[i].c
+            #  feed_dict[h] = bot_state[i].h
+
         vals = session.run(fetches, feed_dict)
         cost = vals["cost"]
         state = vals["final_state"]
         costs += cost
         iters += model.input.num_steps
 
-        if verbose and step % (model.input.epoch_size // 10) == 10:
+        #  if verbose and step % (model.input.epoch_size // 10) == 10:
+        if verbose and step % 10 == 0:
             print("%.3f perplexity: %.3f speed: %.0f wps" %
             (step * 1.0 / model.input.epoch_size, np.exp(costs / iters),
             iters * model.input.batch_size / (time.time() - start_time)))
     return np.exp(costs / iters)
 
-f_data, t_data_raw = data_reader._read_data()
-word_id = data_reader._build_word_id()
-t_data_id, sent_len = data_reader._text_data_to_word_id(t_data_raw, word_id)
-train_input = S2VT_input(
-        frame_data = f_data, 
-        text_data = t_data_id, 
-        sent_len = sent_len, 
-        word_id = word_id)
-S2VT_model(is_training = True, input_ = train_input)
+def run_predict(session, model, eval_op = None, verbose = False):
+    start_time = time.time()
+    costs = 0.
+    iters = 0
+    top_state = session.run(model.top_init_state)
+    bot_state = session.run(model.bot_init_state)
+    fetches = {
+        "final_word": model.final_output_word,
+    }
+    if eval_op is not None:
+        fetches["eval_op"] = eval_op
+    feed_dict = {}
+    vals = session.run(fetches, feed_dict)
+    word = vals["final_word"]
+    return word
+
+with tf.Graph().as_default():
+    f_data, t_data_raw = data_reader._read_train_data()
+    word_id, inv_word_id = data_reader._build_word_id()
+    t_data_id, sent_len, orig_sent_len = data_reader._text_data_to_word_id(t_data_raw, word_id)
+
+    initializer = tf.random_uniform_initializer(-0.05, 0.05)
+    with tf.name_scope("Train"):
+        train_input = S2VT_input(
+                frame_data = f_data, 
+                text_data = t_data_id, 
+                sent_len = sent_len, 
+                orig_sent_len = orig_sent_len,
+                word_id = word_id,
+                batch_size = 1,
+                name = "train_input")
+        with tf.variable_scope("model", reuse = False, initializer = initializer):
+            train_model = S2VT_model(is_training = True, input_ = train_input)
+    f_data, t_data_raw = data_reader._read_test_data()
+    t_data_id, sent_len, orig_sent_len = data_reader._text_data_to_word_id(t_data_raw, word_id)
+    with tf.name_scope("Test"):
+        test_input = S2VT_input(
+                frame_data = f_data, 
+                text_data = t_data_id, 
+                sent_len = sent_len, 
+                orig_sent_len = orig_sent_len,
+                word_id = word_id,
+                batch_size = 1,
+                name = "test_input")
+        with tf.variable_scope("model", reuse = True, initializer = initializer):
+            test_model = S2VT_model(is_training = False, input_ = train_input)
+
+    sv = tf.train.Supervisor(logdir = None)
+    with sv.managed_session() as session:
+        for i in range(1):
+            run_epoch(session = session, model = train_model, eval_op = train_model.train_op, verbose = True)
+        for i in range(test_input.epoch_size):
+            words = run_predict(session = session, model = test_model, eval_op = None, verbose = False)
+            sent = ''
+            for w in words:
+                sent += inv_word_id[w[0]] + ' '
+            print sent
