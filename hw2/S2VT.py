@@ -28,6 +28,7 @@ class S2VT_model(object):
         frame_len = input_.frame_len
         sent_len = input_.sent_len
         self._orig_sent_len = input_.orig_sent_len[0]
+        orig_sent_len = input_.orig_sent_len[0]
         vocab_size = input_.vocab_size
         batch_size = input_.batch_size
         num_steps = frame_len + sent_len
@@ -92,19 +93,18 @@ class S2VT_model(object):
         self._final_output_word = bot_output_word
         if not is_training:
             return
-        #  loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
-                #  [logits],
-                #  [tf.reshape(input_.targets_batch[:, 1:], [-1])],
-                #  [tf.ones([batch_size * sent_len], dtype = tf.float32)])
-        print input_.targets_batch.shape
+        loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
+                [logits[:orig_sent_len]],
+                [tf.reshape(input_.targets_batch[:,:orig_sent_len], [-1])],
+                [tf.ones([batch_size * orig_sent_len], dtype = tf.float32)])
 
-        loss = tf.nn.sampled_softmax_loss(
-                weights = tf.transpose(softmax_w), 
-                biases = softmax_b, 
-                labels = tf.reshape(input_.targets_batch, [-1, 1]), 
-                inputs = output, 
-                num_sampled = 64,
-                num_classes = vocab_size)
+        #  loss = tf.nn.sampled_softmax_loss(
+                #  weights = tf.transpose(softmax_w), 
+                #  biases = softmax_b, 
+                #  labels = tf.reshape(input_.targets_batch[:, :orig_sent_len], [-1, 1]), 
+                #  inputs = output[:orig_sent_len], 
+                #  num_sampled = 128,
+                #  num_classes = vocab_size)
 
         self._cost = cost = tf.reduce_sum(loss) / batch_size
         self._final_state = bot_final_state
@@ -112,7 +112,7 @@ class S2VT_model(object):
         self._final_probs = tf.nn.softmax(logits)
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 5)
-        optimizer = tf.train.AdamOptimizer(0.0001)
+        optimizer = tf.train.AdamOptimizer(0.001)
         #  self._train_op = optimizer.minimize(cost)
         self._train_op = optimizer.apply_gradients(
                 zip(grads, tvars),
@@ -158,7 +158,7 @@ class S2VT_model(object):
     def final_output_word(self):
         return self._final_output_word
 
-def run_epoch(session, model, eval_op = None, verbose = False):
+def run_epoch(session, model, inv_word_id, eval_op = None, verbose = False):
     start_time = time.time()
     costs = 0.
     iters = 0
@@ -166,31 +166,39 @@ def run_epoch(session, model, eval_op = None, verbose = False):
     bot_state = session.run(model.bot_init_state)
 
     fetches = {
+        "target_word": model.input.targets_batch,
         "cost": model.cost,
         "final_state": model.final_state,
+        "final_word": model.final_output_word
     }
     if eval_op is not None:
         fetches["eval_op"] = eval_op
 
     for step in range(model.input.epoch_size):
-        print session.run(model.orig_sent_len)
         feed_dict = {}
-        #  for i, (c, h) in enumerate(model.top_init_state):
-            #  feed_dict[c] = top_state[i].c
-            #  feed_dict[h] = top_state[i].h
-
-        #  for i, (c, h) in enumerate(model.bot_init_state):
-            #  feed_dict[c] = bot_state[i].c
-            #  feed_dict[h] = bot_state[i].h
-
         vals = session.run(fetches, feed_dict)
         cost = vals["cost"]
         state = vals["final_state"]
+        tgt_word = vals["target_word"]
+        pred_word = vals["final_word"]
         costs += cost
         iters += model.input.num_steps
 
-        #  if verbose and step % (model.input.epoch_size // 10) == 10:
-        if verbose and step % 10 == 0:
+        #  if step == 0:
+            #  sent = ''
+            #  for w in pred_word:
+                #  sent += inv_word_id[w[0]] + ' '
+            #  print "------predict sentence------"
+            #  print sent
+
+        sent = ''
+        for w in tgt_word[0]:
+            sent += inv_word_id[w] + ' '
+        print "------target sentence------"
+        print sent
+
+        if verbose and step % (model.input.epoch_size // 10) == 10:
+        #  if verbose and step % 10 == 0:
             print("%.3f perplexity: %.3f speed: %.0f wps" %
             (step * 1.0 / model.input.epoch_size, np.exp(costs / iters),
             iters * model.input.batch_size / (time.time() - start_time)))
@@ -245,8 +253,8 @@ with tf.Graph().as_default():
 
     sv = tf.train.Supervisor(logdir = None)
     with sv.managed_session() as session:
-        for i in range(1):
-            run_epoch(session = session, model = train_model, eval_op = train_model.train_op, verbose = True)
+        for i in range(10):
+            run_epoch(session = session, model = train_model, inv_word_id = inv_word_id, eval_op = train_model.train_op, verbose = True)
         for i in range(test_input.epoch_size):
             words = run_predict(session = session, model = test_model, eval_op = None, verbose = False)
             sent = ''
