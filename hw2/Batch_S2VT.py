@@ -100,7 +100,7 @@ def build_dataset(data, words_dic, config):
         _step_list[i] = len(_list)+2
         i+=1
     return [_input, _target, _step_list], \
-                    [_input[0:2, :], _target[0:2, :], _step_list[0:2]]
+                    [_input[0:3, :], _target[0:3, :], _step_list[0:3]]
 
 def data_producer(data, data_size, sent_len, \
                         frame_num, feat_size, batch_size, shuffle, name=None):
@@ -175,6 +175,9 @@ class S2VTModel(object):
                                             dtype=data_type(0))
         embedding = tf.get_variable("embedding", [vocab_size, size/2], \
                                             dtype=data_type(0))
+        softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype=data_type(0))
+        softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype=data_type(0))
+
         def lstm_cell():
         # With the latest TensorFlow source code (as of Mar 27, 2017),
         # the BasicLSTMCell will need a reuse parameter which is unfortunately not
@@ -213,6 +216,7 @@ class S2VTModel(object):
         #'''
         outputs = []
         with tf.variable_scope("S2VT"):
+            last_word_index = tf.zeros((batch_size), dtype=tf.int32)
             for time_step in range(num_steps-1):
                 # First Layer RNN
                 if time_step > 0 : tf.get_variable_scope().reuse_variables()
@@ -222,12 +226,18 @@ class S2VTModel(object):
                 #second_input_2 = tf.reshape( \
                 #            text_inputs[:, time_step, :], [1, size/2])
                 second_input_2 = text_inputs[:, time_step, :]
+                if (not is_training) and time_step > frame_num:
+                    second_input_2 = tf.nn.embedding_lookup(embedding, last_word_index)
                 second_input = tf.concat([second_input_1, second_input_2], axis=1)
 
                 # Second Layer RNN
                 tf.get_variable_scope().reuse_variables()
                 (second_output, second_state) = \
                                 second_cell(second_input, second_state)
+                _last_output = tf.reshape(second_output, [-1, size])
+                _last_logits = tf.matmul(_last_output, softmax_w) + softmax_b
+                _last_probs = tf.nn.softmax(_last_logits)
+                last_word_index = tf.argmax(_last_probs, axis=1)
                 # Only get Decoding stage Output.
                 if time_step >= frame_num:
                     outputs.append(second_output)
@@ -235,9 +245,6 @@ class S2VTModel(object):
         output = tf.reshape(tf.concat(axis=1, values=outputs), [-1, size])
         print "output shape: ",output.shape
         # output : [ (SentLen-1) * BatchSize, Size]
-        softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype=data_type(0))
-        softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype=data_type(0))
-
         logits = tf.matmul(output, softmax_w) + softmax_b
         #'''
         loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
