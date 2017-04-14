@@ -16,6 +16,7 @@ def _read_train_data():
         for i in range(len(train_json)):
             caption = train_json[i]["caption"][0]
             train_caption = caption[:len(caption) - 1] + ' EOS'
+            train_caption = re.sub(",", " ,", train_caption)
             train_captions.append(train_caption)
             video_id = train_json[i]["id"] 
             feat_file_name = video_id + '.npy'
@@ -33,6 +34,7 @@ def _read_test_data():
         for i in range(len(test_json)):
             caption = test_json[i]["caption"][0]
             test_caption = caption[:len(caption) - 1] + ' EOS'
+            test_caption = re.sub(",", " ,", test_caption)
             test_captions.append(test_caption)
             video_id = test_json[i]["id"] 
             feat_file_name = video_id + '.npy'
@@ -51,7 +53,7 @@ def _build_word_id():
                 for word in new_caption.split():
                     words.append(word)
         count = [['UNK', -1], ['BOS', -1]]
-        count.extend(collections.Counter(words).most_common(1000000))
+        count.extend(collections.Counter(words).most_common(10000))
         dictionary = dict()
         inv_dictionary = dict()
         for word, _ in count:
@@ -79,7 +81,7 @@ def _text_data_to_word_id(text_data_raw, word_to_id):
     text_data = []
     for caption in caption_id:
         pad_caption = caption[:]
-        for i in range(max_len - len(caption) + 1):
+        for i in range(max_len - len(caption)):
             pad_caption.append(0)
         text_data.append(pad_caption)
     return text_data, max_len, orig_sent_len
@@ -95,9 +97,9 @@ def Data_producer(frame_data, text_data, batch_size, sent_len, orig_sent_len, na
         frame_feat_data.set_shape([80, 4096])
 
         text_id_tensor = tf.convert_to_tensor(text_data, name = "text_id_data", dtype = tf.int32)
-        text_id_data = tf.strided_slice(text_id_tensor, [i, 0], [(i + 1), sent_len + 1])
-        text_id_data = tf.reshape(text_id_data, [sent_len + 1])
-        text_id_data.set_shape([sent_len + 1])
+        text_id_data = tf.strided_slice(text_id_tensor, [i, 0], [(i + 1), sent_len])
+        text_id_data = tf.reshape(text_id_data, [sent_len])
+        text_id_data.set_shape([sent_len])
 
         orig_sent_len_tensor = tf.convert_to_tensor(orig_sent_len, name = "orig_sent_len", dtype = tf.int32)
         orig_sent_len_data = tf.strided_slice(orig_sent_len, [i], [(i + 1)])
