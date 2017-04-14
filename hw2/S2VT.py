@@ -128,7 +128,7 @@ class S2VT_model(object):
         self._final_probs = tf.nn.softmax(logits)
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), 5)
-        optimizer = tf.train.AdamOptimizer(0.001)
+        optimizer = tf.train.AdamOptimizer(0.005)
         #  self._train_op = optimizer.minimize(cost)
         self._train_op = optimizer.apply_gradients(
                 zip(grads, tvars),
