@@ -64,10 +64,6 @@ class lstm_model():
         softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype = tf.float32)
         logits = tf.matmul(output, softmax_w) + softmax_b
         
-        #  loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
-                #  [logits],
-                #  [tf.reshape(input_.targets, [-1])],
-                #  [tf.ones([batch_size * num_steps], dtype = tf.float32)])
 
         loss = tf.nn.sampled_softmax_loss(
                 weights = tf.transpose(softmax_w), 

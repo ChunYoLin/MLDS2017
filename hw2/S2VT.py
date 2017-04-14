@@ -298,7 +298,7 @@ with tf.Graph().as_default():
         with tf.variable_scope("model", reuse = True, initializer = initializer):
             test_model = S2VT_model(is_training = False, input_ = test_input)
 
-    sv = tf.train.Supervisor(logdir = "./S2VT_model")
+    sv = tf.train.Supervisor(logdir = None)
     with sv.managed_session() as session:
         for i in range(1000):
             cost = run_epoch(session = session, model = train_model, inv_word_id = inv_word_id, eval_op = train_model.train_op, verbose = True)
