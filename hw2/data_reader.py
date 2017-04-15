@@ -43,6 +43,17 @@ def _read_test_data():
         frame_data = np.asarray(frame_data, dtype = np.float32)
     return frame_data, test_captions
 
+def _read_time_limited_data():
+    feat_path = './MLDS_hw2_time_limited/feat/'
+    frame_data = []
+    feat_files = []
+    for feat_file_name in os.listdir(feat_path):
+        feat_files.append(feat_file_name)
+        feat = np.load(feat_path + feat_file_name)
+        frame_data.append(feat)
+    frame_data = np.asarray(frame_data, dtype = np.float32)
+    return frame_data, feat_files
+
 def _build_word_id():
     with open("./MLDS_hw2_data/training_label.json") as train:
         train_json = json.load(train)

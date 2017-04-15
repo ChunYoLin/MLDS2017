@@ -284,6 +284,7 @@ with tf.Graph().as_default():
                 name = "train_input")
         with tf.variable_scope("model", reuse = False, initializer = initializer):
             train_model = S2VT_model(is_training = True, input_ = train_input)
+
     f_data, t_data_raw = data_reader._read_test_data()
     t_data_id, sent_len, orig_sent_len = data_reader._text_data_to_word_id(t_data_raw, word_id)
     with tf.name_scope("Test"):
@@ -297,32 +298,51 @@ with tf.Graph().as_default():
                 name = "test_input")
         with tf.variable_scope("model", reuse = True, initializer = initializer):
             test_model = S2VT_model(is_training = False, input_ = test_input)
+    f_data, feat_files = data_reader._read_time_limited_data()
+    with tf.name_scope("time_limited"):
+        time_limited_input = S2VT_input(
+                frame_data = f_data, 
+                text_data = t_data_id, 
+                sent_len = sent_len, 
+                orig_sent_len = orig_sent_len,
+                word_id = word_id,
+                batch_size = 1,
+                name = "time_limited_input")
+        with tf.variable_scope("model", reuse = True, initializer = initializer):
+            time_limited_model = S2VT_model(is_training = False, input_ = time_limited_input)
 
     sv = tf.train.Supervisor(logdir = None)
+    saver = sv.saver
     with sv.managed_session() as session:
-        for i in range(1000):
+        saver.restore(session, './S2VT_model/S2VT-800')
+        for i in range(500):
             cost = run_epoch(session = session, model = train_model, inv_word_id = inv_word_id, eval_op = train_model.train_op, verbose = True)
             print "Epoch %d, Cost %f"%(i, cost)
-            #  if i % 50 == 0:
-        for j in range(3):
-            input_word, tgt_word, pred_word = run_predict(session = session, model = test_model, eval_op = None, verbose = False)
-            print "Testing %d"%j
-            print '-------------------------------------------------------'
-            sent = ''
-            for w in tgt_word[0]:
-                sent += inv_word_id[w] + ' '
-            print "[target sentence]"
-            print sent
+            if i % 100 == 0:
+                print "save model..."
+                saver.save(session, './S2VT_model/S2VT', global_step = i + 800)
+        #  saver.restore(session, './S2VT_model/S2VT-500')
+        #  for j in range(5):
+            #  input_word, tgt_word, pred_word = run_predict(session = session, model = time_limited_model, eval_op = None, verbose = False)
+            #  #  print "Testing %d"%j
+            #  print "[video id]: %s"%feat_files[j]
+            #  #  print '-------------------------------------------------------'
+            #  #  sent = ''
+            #  #  for w in tgt_word[0]:
+                #  #  sent += inv_word_id[w] + ' '
+            #  #  print "[target sentence]"
+            #  #  print sent
 
-            sent = ''
-            for w in input_word:
-                sent += inv_word_id[w] + ' '
-            print "[input sentence]"
-            print sent
+            #  #  sent = ''
+            #  #  for w in input_word:
+                #  #  sent += inv_word_id[w] + ' '
+            #  #  print "[input sentence]"
+            #  #  print sent
 
-            sent = ''
-            for w in pred_word[:, 0]:
-                sent += inv_word_id[w] + ' '
-            print "[predict sentence]"
-            print sent
-            print '-------------------------------------------------------'
+            #  sent = ''
+            #  for w in pred_word[:, 0]:
+                #  if w != 0:
+                    #  sent += inv_word_id[w] + ' '
+            #  print "[predict sentence]: %s"%sent
+            #  #  print sent
+            #  print '-------------------------------------------------------'
