@@ -34,8 +34,8 @@ class S2VT_model(object):
         num_steps = frame_len + sent_len
         # top
         cell_top = lstm_cell()
-        #  if is_training:
-            #  cell_top = tf.contrib.rnn.DropoutWrapper(cell_top, output_keep_prob = 0.6)
+        if is_training:
+            cell_top = tf.contrib.rnn.DropoutWrapper(cell_top, output_keep_prob = 0.5)
         input_frame = input_.input_batch
         top_state_in = cell_top.zero_state(batch_size, tf.float32)
         self._top_init_state = top_state_in
@@ -57,7 +57,7 @@ class S2VT_model(object):
         #  bot
         cell_bot = lstm_cell()
         if is_training:
-            cell_bot = tf.contrib.rnn.DropoutWrapper(cell_bot, output_keep_prob = 0.6)
+            cell_bot = tf.contrib.rnn.DropoutWrapper(cell_bot, output_keep_prob = 0.5)
         bot_state_in = cell_bot.zero_state(batch_size, tf.float32)
         self._bot_init_state = bot_state_in
         bot_final_state = cell_bot.zero_state(batch_size, tf.float32)
@@ -315,21 +315,22 @@ with tf.Graph().as_default():
     sv = tf.train.Supervisor(logdir = None)
     saver = sv.saver
     with sv.managed_session() as session:
-        #  saver.restore(session, './S2VT_model/S2VT-1900')
-        for i in range(0):
+        for i in range(2000):
             cost = run_epoch(session = session, model = train_model, inv_word_id = inv_word_id, eval_op = train_model.train_op, verbose = True)
             print "Epoch %d, Cost %f"%(i, cost)
-            if i % 100 == 0:
+            if (i + 1) % 100 == 0:
                 print "save model..."
-                #  saver.save(session, './S2VT_model/S2VT', global_step = i)
-                print "[video id]: %s"%feat_files[j]
-                sent = ''
-                for w in pred_word[:, 0]:
-                    if w != 0:
-                        sent += inv_word_id[w] + ' '
-                print "[predict sentence]: %s"%sent
+                saver.save(session, './S2VT_model/S2VT_dropout', global_step = i)
+                for j in range(5):
+                    input_word, tgt_word, pred_word = run_predict(session = session, model = time_limited_model, eval_op = None, verbose = False)
+                    print "[video id]: %s"%feat_files[j]
+                    sent = ''
+                    for w in pred_word[:, 0]:
+                        if w != 0:
+                            sent += inv_word_id[w] + ' '
+                    print "[predict sentence]: %s"%sent
 
-        saver.restore(session, './S2VT_model/S2VT-1700')
+        #  saver.restore(session, './S2VT_model/S2VT-1700')
         for j in range(test_input.epoch_size):
             input_word, tgt_word, pred_word = run_predict(session = session, model = test_model, eval_op = None, verbose = False)
             print "Testing %d"%j
