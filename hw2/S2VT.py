@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import data_reader
 import time
+import random
 
 class S2VT_input(object):
   def __init__(self, frame_data, text_data, sent_len, orig_sent_len, word_id, batch_size, name = None):
@@ -34,8 +35,8 @@ class S2VT_model(object):
         num_steps = frame_len + sent_len
         # top
         cell_top = lstm_cell()
-        if is_training:
-            cell_top = tf.contrib.rnn.DropoutWrapper(cell_top, output_keep_prob = 0.5)
+        #  if is_training:
+            #  cell_top = tf.contrib.rnn.DropoutWrapper(cell_top, output_keep_prob = 0.5)
         input_frame = input_.input_batch
         top_state_in = cell_top.zero_state(batch_size, tf.float32)
         self._top_init_state = top_state_in
@@ -56,8 +57,8 @@ class S2VT_model(object):
                 top_outputs.append(top_output_pad)
         #  bot
         cell_bot = lstm_cell()
-        if is_training:
-            cell_bot = tf.contrib.rnn.DropoutWrapper(cell_bot, output_keep_prob = 0.5)
+        #  if is_training:
+            #  cell_bot = tf.contrib.rnn.DropoutWrapper(cell_bot, output_keep_prob = 0.5)
         bot_state_in = cell_bot.zero_state(batch_size, tf.float32)
         self._bot_init_state = bot_state_in
         bot_final_state = cell_bot.zero_state(batch_size, tf.float32)
@@ -82,13 +83,21 @@ class S2VT_model(object):
                     if time_step == frame_len:
                         embed_idx = [input_.word_id["BOS"] for _ in range(batch_size)]
                     else:
-                        #  if is_training:
-                            #  embed_idx = input_.targets_batch[:, time_step - 80 - 1]
-                            #  word_idx = tf.argmax(bot_probs, 1)
-                            #  bot_output_word.append(word_idx)
-                        #  else:
-                        embed_idx = tf.argmax(bot_probs, 1)
-                        bot_output_word.append(embed_idx)
+                        if is_training:
+                            samples = tf.multinomial(tf.log([[10., 10.]]), 1)
+                            samples = tf.reshape(samples, [-1])
+                            self._samples = samples
+                            #  scheduling sampling
+                            #  if samples == 0:
+                                #  embed_idx = input_.targets_batch[:, time_step - 80 - 1]
+                            #  elif samples == 1:
+                                #  embed_idx = tf.argmax(bot_probs, 1)
+                            embed_idx = input_.targets_batch[:, time_step - 80 - 1]
+                            word_idx = tf.argmax(bot_probs, 1)
+                            bot_output_word.append(word_idx)
+                        else:
+                            embed_idx = tf.argmax(bot_probs, 1)
+                            bot_output_word.append(embed_idx)
 
                     bot_inputs.append(embed_idx)
                     text_input = tf.nn.embedding_lookup(embedding, embed_idx)
@@ -182,6 +191,10 @@ class S2VT_model(object):
     def final_output_word(self):
         return self._final_output_word
 
+    @property
+    def samples(self):
+        return self._samples
+
 def run_epoch(session, model, inv_word_id, eval_op = None, verbose = False):
     start_time = time.time()
     costs = 0.
@@ -194,7 +207,8 @@ def run_epoch(session, model, inv_word_id, eval_op = None, verbose = False):
         "target_word": model.input.targets_batch,
         "cost": model.cost,
         "final_state": model.final_state,
-        "final_word": model.final_output_word
+        "final_word": model.final_output_word,
+        "samples": model.samples,
     }
     if eval_op is not None:
         fetches["eval_op"] = eval_op
@@ -207,9 +221,7 @@ def run_epoch(session, model, inv_word_id, eval_op = None, verbose = False):
         tgt_word = vals["target_word"]
         pred_word = vals["final_word"]
         pred_word = np.asarray(pred_word)
-        #  if step < 3:
-            #  print "---------------frame code-----------------"
-            #  print vals["frame_code"][0]
+        #  print vals["samples"]
 
         costs += cost
         iters += model.input.num_steps
@@ -315,12 +327,12 @@ with tf.Graph().as_default():
     sv = tf.train.Supervisor(logdir = None)
     saver = sv.saver
     with sv.managed_session() as session:
-        for i in range(2000):
+        for i in range(1000):
             cost = run_epoch(session = session, model = train_model, inv_word_id = inv_word_id, eval_op = train_model.train_op, verbose = True)
             print "Epoch %d, Cost %f"%(i, cost)
             if (i + 1) % 100 == 0:
                 print "save model..."
-                saver.save(session, './S2VT_model/S2VT_dropout', global_step = i)
+                saver.save(session, './S2VT_model/S2VT_inputref', global_step = i + 1)
                 for j in range(5):
                     input_word, tgt_word, pred_word = run_predict(session = session, model = time_limited_model, eval_op = None, verbose = False)
                     print "[video id]: %s"%feat_files[j]

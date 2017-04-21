@@ -71,6 +71,7 @@ def _build_word_id():
             idx = len(dictionary)
             dictionary[word] = idx
             inv_dictionary[idx] = word
+        del train_json
     return dictionary, inv_dictionary
 
 def _text_data_to_word_id(text_data_raw, word_to_id):
@@ -95,6 +96,7 @@ def _text_data_to_word_id(text_data_raw, word_to_id):
         for i in range(max_len - len(caption)):
             pad_caption.append(0)
         text_data.append(pad_caption)
+    del caption_id
     return text_data, max_len, orig_sent_len
 
 def Data_producer(frame_data, text_data, batch_size, sent_len, orig_sent_len, name = None):
