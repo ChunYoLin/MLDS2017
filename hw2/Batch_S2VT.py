@@ -11,12 +11,44 @@ TRAIN_PATH = "Data/training_data/feat/"
 TRAIN_LABEL = "Data/training_label.json"
 TEST_PATH = "Data/testing_data/feat/"
 TEST_LABEL = "Data/testing_public_label.json"
+LIMIT_PATH = "Data/Limit/feat/"
+
+flags = tf.flags
+logging = tf.logging
+
+# Flags : TF's command line module, ==> (--model, default, help description)
+
+flags.DEFINE_string("save_path", None,
+                    "Model output directory.")
+flags.DEFINE_bool("train", False,
+                  "Training model or Loading model")
+flags.DEFINE_bool("sample", True,
+                  "Training model or Loading model")
+
+FLAGS = flags.FLAGS
 
 def data_type(flag):
     if flag == 0:
         return tf.float32# if FLAGS.use_fp16 else tf.float32
     elif flag == 1:
         return np.float32
+
+def build_limit_data(config):
+    data_size = config.data_size
+    sent_len = config.sent_len
+    frame_num = config.frame_num
+    feat_size = config.feat_size
+    feat_list = []
+    for filename in os.listdir(LIMIT_PATH):
+        _feat = np.load( LIMIT_PATH + filename )
+        _feat = np.reshape(_feat, (1, frame_num, feat_size))
+        feat_list.append( _feat.astype( data_type(1) ) )
+        print ("Name : %s   " % filename),
+        print "Data : ",_feat[0, 0, 0:10]
+    _input = np.concatenate( feat_list, axis=0 )
+    _target = np.ones((data_size, sent_len), dtype=np.int)
+    print "Limit data Shape: ",_input.shape
+    return [_input, _target]
 
 def parse_sent(_sent):
     _sent = re.sub("[^A-Za-z ]", '', _sent)
@@ -109,7 +141,7 @@ def data_producer(data, data_size, sent_len, \
 
         x_data = data[0]
         y_data = data[1]
-        steps_data = data[2]
+        #steps_data = data[2]
 
         i = tf.train.range_input_producer(data_size, shuffle=shuffle).dequeue()
         x_tensor = tf.convert_to_tensor(x_data, name="x_data", \
@@ -168,6 +200,7 @@ class S2VTModel(object):
 
         frame_padding = tf.zeros([batch_size, sent_len, size], tf.float32)
         text_padding = tf.zeros([batch_size, frame_num, size/2], data_type(0))
+        sample_prob = tf.constant(0.4)
 
         weight_1 = tf.get_variable("weight_1", [feat_size, size], \
                                             dtype=data_type(0))
@@ -211,8 +244,6 @@ class S2VTModel(object):
         inputs = tf.reshape(inputs, (batch_size, frame_num, size))
         frame_inputs = tf.concat([inputs, frame_padding], axis = 1)
         text_inputs = tf.concat([text_padding, targets], axis = 1)
-        print "Frame Input shape: ",frame_inputs.shape
-        print "Text Input shape: ",text_inputs.shape
         #'''
         outputs = []
         with tf.variable_scope("S2VT"):
@@ -223,11 +254,20 @@ class S2VTModel(object):
                 (first_output, first_state) = \
                         first_cell(frame_inputs[:, time_step, :], first_state)
                 second_input_1 = tf.matmul(first_output, weight_2)
-                #second_input_2 = tf.reshape( \
-                #            text_inputs[:, time_step, :], [1, size/2])
-                second_input_2 = text_inputs[:, time_step, :]
-                if (not is_training) and time_step > frame_num:
-                    second_input_2 = tf.nn.embedding_lookup(embedding, last_word_index)
+                #target_input = text_inputs[:, time_step, :]
+                #predict_input = tf.nn.embedding_lookup(embedding, last_word_index)
+                def target_input(): return text_inputs[:, time_step, :]
+                def predict_input(): \
+                        return tf.nn.embedding_lookup(embedding, last_word_index)
+                if time_step > frame_num:
+                    if not is_training:
+                        second_input_2 = predict_input()
+                    elif FLAGS.sample:
+                        _rand = tf.random_uniform([1])[0]
+                        second_input_2 = tf.cond(_rand > sample_prob, \
+                                    target_input, predict_input)
+                else:
+                    second_input_2 = target_input()
                 second_input = tf.concat([second_input_1, second_input_2], axis=1)
 
                 # Second Layer RNN
@@ -243,7 +283,6 @@ class S2VTModel(object):
                     outputs.append(second_output)
 
         output = tf.reshape(tf.concat(axis=1, values=outputs), [-1, size])
-        print "output shape: ",output.shape
         # output : [ (SentLen-1) * BatchSize, Size]
         logits = tf.matmul(output, softmax_w) + softmax_b
         #'''
@@ -332,28 +371,14 @@ def run_epoch(session, model, eval_op=None, verbose=False):
     """Runs the model on the given data."""
     costs = 0.0
     iters = 0
-    first_state = session.run(model.init_first_state)
-    second_state = session.run(model.init_second_state)
     fetches = {
             "cost": model.cost,
-#            "x": model.x,
-#            "y": model.y,
-#            "steps": model.steps,
     }
     if eval_op is not None:
         fetches["eval_op"] = eval_op
 
     for step in range(model.input.epoch_size):
         feed_dict = {}
-        '''
-        for i, (c, h) in enumerate(model.init_first_state):
-            feed_dict[c] = first_state[i].c
-            feed_dict[h] = first_state[i].h
-
-        for i, (c, h) in enumerate(model.init_second_state):
-            feed_dict[c] = second_state[i].c
-            feed_dict[h] = second_state[i].h
-        #'''
         vals = session.run(fetches, feed_dict)
         cost = vals["cost"]
 
@@ -372,13 +397,14 @@ def run_predict(session, model, eval_op=None, verbose=False):
             "y": model.y,
             "probs": model.probs,
     }
-    first_state = session.run(model.init_first_state)
-    second_state = session.run(model.init_second_state)
     feed_dict = {}
     vals = session.run(fetches, feed_dict)
     x = vals["x"]
     y = np.reshape(vals["y"], (-1))
-    _pos = np.where(y == 2)[0][0]
+    try:
+        _pos = np.where(y == 2)[0][0]
+    except IndexError:
+        _pos = 3
     y = y[0:_pos+1]
     probs = vals["probs"]
     return x, y.tolist(), probs
@@ -405,11 +431,11 @@ class MediumConfig(object):
 def main(_):
     config = MediumConfig()
     eval_config = MediumConfig()
-    print "--- Read Train Data ---"
+    print "\n--- Read Train Data ---"
     train_raw_data, total_words, sent_len = read_file(config, True)
-    print "--- Read Test Data ---"
+    print "\n--- Read Test Data ---"
     test_raw_data, _, _ = read_file(config, False)
-    print "--- Build Words Dict ---"
+    print "\n--- Build Words Dict ---"
     words_dic, rev_words_dic = build_words_dic(total_words, config)
 
     to_word = lambda ind: rev_words_dic[ind]
@@ -423,7 +449,7 @@ def main(_):
     eval_config.sent_len = sent_len
     eval_config.batch_size = 1
     #'''
-    print "--- Data Sample ---"
+    print "\n--- Data Sample ---"
     for key, _dic in test_raw_data.iteritems():
         i+=1
         if i>2:
@@ -438,47 +464,78 @@ def main(_):
                                                 words_dic, config)
     test_data, test_valid = build_dataset(test_raw_data, \
                                                 words_dic, config)
+    print "\n--- Read Limit Data ---"
+    limit_config = MediumConfig()
+    limit_config.data_size = 5
+    limit_config.sent_len = sent_len
+    limit_config.batch_size = 1
+    limit_data = build_limit_data(limit_config)
     #'''
     with tf.Graph().as_default():
         initializer = tf.random_uniform_initializer(-config.init_scale,
             config.init_scale)
-
+        print "\n--- Build Train Model ---"
         with tf.name_scope("Train"):
             train_input = Input(config=config, data=train_data, \
                                     shuffle=True, name="TrainInput")
             with tf.variable_scope("Model", reuse=None, initializer=initializer):
                 m = S2VTModel(is_training=True, config=config, input_=train_input)
 
+        print "\n--- Build Test Model ---"
         with tf.name_scope("Test"):
             test_input = Input(config=eval_config, data=test_valid, \
                                     shuffle=False, name="TestInput")
             with tf.variable_scope("Model", reuse=True, initializer=initializer):
                 mtest = S2VTModel(is_training=False, config=eval_config, input_=test_input)
 
+        print "\n--- Build Limit Model ---"
+        with tf.name_scope("Limit"):
+            limit_input = Input(config=limit_config, data=limit_data, \
+                                    shuffle=False, name="LimitInput")
+            with tf.variable_scope("Model", reuse=True, initializer=initializer):
+                mlimit = S2VTModel(is_training=False, config=limit_config, input_=limit_input)
+        #sv = tf.train.Supervisor(logdir=FLAGS.save_path)
         sv = tf.train.Supervisor(logdir=None)
         saver=sv.saver
+        start_time = time.time()
         with sv.managed_session() as session:
-            for i in range(config.max_max_epoch):
-                fuck = 1
-                #lr_decay = config.lr_decay ** max(i + 1 - config.max_epoch, 0.0)
-                #lr_decay = 0.002 * (0.97**i)
-                #m.assign_lr(session, config.learning_rate * lr_decay)
+            if FLAGS.train:
+                for i in range(config.max_max_epoch):
+                    fuck = 1
+                    #lr_decay = config.lr_decay ** max(i + 1 - config.max_epoch, 0.0)
+                    #lr_decay = 0.002 * (0.97**i)
+                    #m.assign_lr(session, config.learning_rate * lr_decay)
 
-                #print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
-                train_perplexity = run_epoch(session, m, \
-                                        eval_op=m.train_op, verbose=True)
-                if ((i+1) % 20) == 0:
-                    print("Epoch %d Train Perplexity: %.3f" % ((i+1), train_perplexity))
-                if ((i+1) % 100) == 0:
-                    print "==== Epoch %d ====" % (i+1)
-                    for i in range(2):
-                        x, y, probs = run_predict(session, mtest)
-                        print "----------\nX Data: ",x[0, 0, 0:5]
-                        print "[Ans] %s" % ( ' '.join( map(to_word, y) ) )
-                        pred_words = np.argmax(probs, axis=1)
-                        _pos = np.where(pred_words == 2)[0][0]
-                        pred_list = pred_words[0:_pos+1].tolist()
-                        print "[Pred] %s" % ( ' '.join( map(to_word, pred_list) ) )
+                    #print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
+                    train_perplexity = run_epoch(session, m, \
+                                            eval_op=m.train_op, verbose=True)
+                    if ((i+1) % 25) == 0:
+                        run_time = int( (time.time() - start_time) / 60 )
+                        print("Epoch %d Train Perplexity: %.3f  Run %d min" \
+                                    % ((i+1), train_perplexity, run_time))
+                    if ((i+1) % 100) == 0:
+                        print "==== Epoch %d ====" % (i+1)
+                        print "--- Test Data ---"
+                        for i in range(2):
+                            x, y, probs = run_predict(session, mtest)
+                            print "----------\nX Data: ",x[0, 0, 0:5]
+                            print "[Ans] %s" % ( ' '.join( map(to_word, y) ) )
+                            pred_words = np.argmax(probs, axis=1)
+                            _pos = np.where(pred_words == 2)[0][0]
+                            pred_list = pred_words[0:_pos+1].tolist()
+                            print "[Pred] %s" % ( ' '.join( map(to_word, pred_list) ) )
+                        print "\n--- Limit Data ---"
+                        for i in range(5):
+                            x, y, probs = run_predict(session, mlimit)
+                            print "----------\nX Data: ",x[0, 0, 0:5]
+                            pred_words = np.argmax(probs, axis=1)
+                            _pos = np.where(pred_words == 2)[0][0]
+                            pred_list = pred_words[0:_pos+1].tolist()
+                            print "[Pred] %s" % ( ' '.join( map(to_word, pred_list) ) )
+                        print
+            #if FLAGS.save_path and FLAGS.train:
+            #    print("Saving model to %s." % FLAGS.save_path)
+            #    saver.save(session, FLAGS.save_path, global_step=sv.global_step)
     #'''
 if __name__ == "__main__":
     tf.app.run()
