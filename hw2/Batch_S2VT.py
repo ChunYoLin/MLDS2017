@@ -6,12 +6,15 @@ import numpy as np
 import time
 import tensorflow as tf
 import inspect
+import bleu_eval as bleu
 
 TRAIN_PATH = "Data/training_data/feat/"
 TRAIN_LABEL = "Data/training_label.json"
 TEST_PATH = "Data/testing_data/feat/"
 TEST_LABEL = "Data/testing_public_label.json"
 LIMIT_PATH = "Data/Limit/feat/"
+VALID_NUM = 5
+
 
 flags = tf.flags
 logging = tf.logging
@@ -132,7 +135,7 @@ def build_dataset(data, words_dic, config):
         _step_list[i] = len(_list)+2
         i+=1
     return [_input, _target, _step_list], \
-                    [_input[0:3, :], _target[0:3, :], _step_list[0:3]]
+            [_input[0:VALID_NUM, :], _target[0:VALID_NUM, :], _step_list[0:VALID_NUM]]
 
 def data_producer(data, data_size, sent_len, \
                         frame_num, feat_size, batch_size, shuffle, name=None):
@@ -244,6 +247,8 @@ class S2VTModel(object):
         inputs = tf.reshape(inputs, (batch_size, frame_num, size))
         frame_inputs = tf.concat([inputs, frame_padding], axis = 1)
         text_inputs = tf.concat([text_padding, targets], axis = 1)
+        if is_training and config.keep_prob < 1:
+            frame_inputs = tf.nn.dropout(frame_inputs, config.keep_prob)
         #'''
         outputs = []
         with tf.variable_scope("S2VT"):
@@ -266,6 +271,8 @@ class S2VTModel(object):
                         _rand = tf.random_uniform([1])[0]
                         second_input_2 = tf.cond(_rand > sample_prob, \
                                     target_input, predict_input)
+                    else:
+                        second_input_2 = target_input()
                 else:
                     second_input_2 = target_input()
                 second_input = tf.concat([second_input_1, second_input_2], axis=1)
@@ -430,6 +437,7 @@ class MediumConfig(object):
 
 def main(_):
     config = MediumConfig()
+    valid_config = MediumConfig()
     eval_config = MediumConfig()
     print "\n--- Read Train Data ---"
     train_raw_data, total_words, sent_len = read_file(config, True)
@@ -437,6 +445,7 @@ def main(_):
     test_raw_data, _, _ = read_file(config, False)
     print "\n--- Build Words Dict ---"
     words_dic, rev_words_dic = build_words_dic(total_words, config)
+    del total_words
 
     to_word = lambda ind: rev_words_dic[ind]
     # to_num = lambda word: words_dic.get(word, 0)
@@ -445,10 +454,13 @@ def main(_):
     print "Test Data size ",len(test_raw_data)
     config.data_size = len(train_raw_data)
     config.sent_len = sent_len
-    eval_config.data_size = 2
+    valid_config.data_size = VALID_NUM
+    valid_config.sent_len = sent_len
+    valid_config.batch_size = 1
+    eval_config.data_size = len(test_raw_data)
     eval_config.sent_len = sent_len
     eval_config.batch_size = 1
-    #'''
+    '''
     print "\n--- Data Sample ---"
     for key, _dic in test_raw_data.iteritems():
         i+=1
@@ -460,16 +472,20 @@ def main(_):
         print "NP Type: ",_dic['feat'].dtype
         print _dic['feat'][0, 0:10]
     #'''
-    train_data, train_valid = build_dataset(train_raw_data, \
+    train_data, _ = build_dataset(train_raw_data, \
                                                 words_dic, config)
+    del _
+    del train_raw_data
     test_data, test_valid = build_dataset(test_raw_data, \
-                                                words_dic, config)
+                                                words_dic, eval_config)
+    '''
     print "\n--- Read Limit Data ---"
     limit_config = MediumConfig()
     limit_config.data_size = 5
     limit_config.sent_len = sent_len
     limit_config.batch_size = 1
     limit_data = build_limit_data(limit_config)
+    '''
     #'''
     with tf.Graph().as_default():
         initializer = tf.random_uniform_initializer(-config.init_scale,
@@ -480,28 +496,27 @@ def main(_):
                                     shuffle=True, name="TrainInput")
             with tf.variable_scope("Model", reuse=None, initializer=initializer):
                 m = S2VTModel(is_training=True, config=config, input_=train_input)
-
+        '''
+        print "\n--- Build Valid Model ---"
+        with tf.name_scope("Valid"):
+            valid_input = Input(config=valid_config, data=test_valid, \
+                                    shuffle=False, name="ValidInput")
+            with tf.variable_scope("Model", reuse=True, initializer=initializer):
+                mvalid = S2VTModel(is_training=False, config=valid_config, input_=valid_input)
+        '''
         print "\n--- Build Test Model ---"
         with tf.name_scope("Test"):
-            test_input = Input(config=eval_config, data=test_valid, \
+            test_input = Input(config=eval_config, data=test_data, \
                                     shuffle=False, name="TestInput")
             with tf.variable_scope("Model", reuse=True, initializer=initializer):
                 mtest = S2VTModel(is_training=False, config=eval_config, input_=test_input)
-
-        print "\n--- Build Limit Model ---"
-        with tf.name_scope("Limit"):
-            limit_input = Input(config=limit_config, data=limit_data, \
-                                    shuffle=False, name="LimitInput")
-            with tf.variable_scope("Model", reuse=True, initializer=initializer):
-                mlimit = S2VTModel(is_training=False, config=limit_config, input_=limit_input)
         #sv = tf.train.Supervisor(logdir=FLAGS.save_path)
         sv = tf.train.Supervisor(logdir=None)
         saver=sv.saver
         start_time = time.time()
         with sv.managed_session() as session:
             if FLAGS.train:
-                for i in range(config.max_max_epoch):
-                    fuck = 1
+                for epoch_step in range(config.max_max_epoch):
                     #lr_decay = config.lr_decay ** max(i + 1 - config.max_epoch, 0.0)
                     #lr_decay = 0.002 * (0.97**i)
                     #m.assign_lr(session, config.learning_rate * lr_decay)
@@ -509,33 +524,92 @@ def main(_):
                     #print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
                     train_perplexity = run_epoch(session, m, \
                                             eval_op=m.train_op, verbose=True)
-                    if ((i+1) % 25) == 0:
+                    if ((epoch_step+1) % 20) == 0:
                         run_time = int( (time.time() - start_time) / 60 )
                         print("Epoch %d Train Perplexity: %.3f  Run %d min" \
-                                    % ((i+1), train_perplexity, run_time))
-                    if ((i+1) % 100) == 0:
-                        print "==== Epoch %d ====" % (i+1)
-                        print "--- Test Data ---"
-                        for i in range(2):
+                                    % ((epoch_step+1), train_perplexity, run_time))
+                    if ((epoch_step+1) % 100) == 0:
+                        bleu_score = 0.0
+                        print "===== Epoch %d Test Data =====" % (epoch_step+1)
+                        print "===== Test Data ====="
+                        for i in range(eval_config.data_size):
                             x, y, probs = run_predict(session, mtest)
-                            print "----------\nX Data: ",x[0, 0, 0:5]
+                            pred_words = np.argmax(probs, axis=1)
+                            _pos = np.where(pred_words == 2)[0][0]
+                            pred_list = pred_words[0:_pos].tolist()
+                            cand_sent = ' '.join( map(to_word, pred_list) )
+                            _dic = test_raw_data.values()[i]
+                            _bleu = 0.0
+                            for sent in _dic['sent']:
+                                ref_sent = ' '.join(sent)
+                                _bleu += bleu.BLEU( cand_sent, ref_sent )
+                            bleu_score += (_bleu / len(_dic['sent']))
+
+                            if i < 3:
+                                print "--------"
+                                print "[X]: ",x[0, 0, 0:7]
+                                print "[Pred] %s" % (cand_sent )
+                                print _dic['feat'][0, 0:7]
+                                print ' '.join(_dic['sent'][0])
+                                print ' '.join(_dic['sent'][1])
+
+                        print "===== BLEU Score: [%.4f] =====\n" % \
+                                        (bleu_score/eval_config.data_size)
+
+            if (not FLAGS.train) and FLAGS.save_path:
+                saver.restore(session, FLAGS.save_path)
+                bleu_score = 0.0
+                print "===== Test Data ====="
+                for i in range(eval_config.data_size):
+                #for i in range(5):
+                    x, y, probs = run_predict(session, mtest)
+                    pred_words = np.argmax(probs, axis=1)
+                    _pos = np.where(pred_words == 2)[0][0]
+                    pred_list = pred_words[0:_pos].tolist()
+                    cand_sent = ' '.join( map(to_word, pred_list) )
+                    _dic = test_raw_data.values()[i]
+                    _bleu = 0.0
+                    _sent_num = 0
+                    for sent in _dic['sent']:
+                        _sent_num += 1
+                        ref_sent = ' '.join(sent)
+                        _bleu += bleu.BLEU( cand_sent, ref_sent )
+                    if _sent_num != len(_dic['sent']):
+                        print "[Error] Sent_num != len(dic)"
+                    bleu_score += (_bleu / len(_dic['sent']))
+
+                    if i < 3:
+                        print "\n--------"
+                        print "[Pred] %s" % (cand_sent )
+                        print "[Sents]:"
+                        print ' '.join(_dic['sent'][0])
+                        print ' '.join(_dic['sent'][1])
+
+                print "\n BLEU Score: %.4f" % (bleu_score/eval_config.data_size)
+            if FLAGS.save_path and FLAGS.train:
+                print("Saving model to %s." % FLAGS.save_path)
+                saver.save(session, FLAGS.save_path, global_step=sv.global_step)
+    print "END"
+    #'''
+if __name__ == "__main__":
+    tf.app.run()
+
+
+
+
+
+
+    '''
+                        print "==== Epoch %d ====" % (i+1)
+                        print "--- Valid Data ---"
+                        for i in range(valid_config.data_size):
+                            x, y, probs = run_predict(session, mvalid)
+                            #print "----------\nX Data: ",x[0, 0, 0:5]
+                            print "-------"
                             print "[Ans] %s" % ( ' '.join( map(to_word, y) ) )
                             pred_words = np.argmax(probs, axis=1)
                             _pos = np.where(pred_words == 2)[0][0]
                             pred_list = pred_words[0:_pos+1].tolist()
                             print "[Pred] %s" % ( ' '.join( map(to_word, pred_list) ) )
-                        print "\n--- Limit Data ---"
-                        for i in range(5):
-                            x, y, probs = run_predict(session, mlimit)
-                            print "----------\nX Data: ",x[0, 0, 0:5]
-                            pred_words = np.argmax(probs, axis=1)
-                            _pos = np.where(pred_words == 2)[0][0]
-                            pred_list = pred_words[0:_pos+1].tolist()
-                            print "[Pred] %s" % ( ' '.join( map(to_word, pred_list) ) )
                         print
-            #if FLAGS.save_path and FLAGS.train:
-            #    print("Saving model to %s." % FLAGS.save_path)
-            #    saver.save(session, FLAGS.save_path, global_step=sv.global_step)
-    #'''
-if __name__ == "__main__":
-    tf.app.run()
+    '''

@@ -7,6 +7,7 @@ import time
 import math
 import tensorflow as tf
 import inspect
+import bleu_eval as bleu
 
 TRAIN_PATH = "Data/training_data/feat/"
 TRAIN_LABEL = "Data/training_label.json"
@@ -123,7 +124,6 @@ def read_file(config, is_train):
 def build_dataset(data, words_dic, config, is_training):
     to_num = lambda word: words_dic.get(word, 0)
 
-    data_size = config.data_size
     sent_len = config.sent_len
     frame_num = config.frame_num
     feat_size = config.feat_size
@@ -320,6 +320,8 @@ class S2VTModel(object):
                         _rand = tf.random_uniform([1])[0]
                         second_input_2 = tf.cond(_rand > sample_prob, \
                                     target_input, predict_input)
+                    else:
+                        second_input_2 = target_input()
                 else:
                     second_input_2 = target_input()
                 second_input = tf.concat([second_input_1, second_input_2], axis=1)
@@ -470,8 +472,8 @@ def run_predict(session, model, eval_op=None, verbose=False):
         _pos = 3
     y = y[0:_pos+1]
     probs = vals["probs"]
-    index = vals["index"]
-    return x, y.tolist(), probs, index
+    #index = vals["index"]
+    return x, y.tolist(), probs#, index
 
 class MediumConfig(object):
     """Medium config."""
@@ -482,7 +484,7 @@ class MediumConfig(object):
     num_steps = 0
     hidden_size = 256
     max_epoch = 6
-    max_max_epoch = 2000
+    max_max_epoch = 160
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 50
@@ -520,8 +522,10 @@ def main(_):
         print _dic['feat'][0, 0:10]
     #'''
     print "\n=== Train Dataset ==="
-    train_data, train_valid = build_dataset(train_raw_data, \
-                                                words_dic, config, False)
+    train_data, _ = build_dataset(train_raw_data, \
+                                                words_dic, config, True)
+    del train_raw_data
+    del _
     '''
     for i in range(20):
         print
@@ -535,18 +539,13 @@ def main(_):
     test_data, test_valid = build_dataset(test_raw_data, \
                                                 words_dic, config, False)
     train_data_size = len(train_data[2])
-    test_data_size = len(test_valid[2])
+    test_data_size = len(test_data[2])
     print "Train Data size: ",train_data_size
     print "Test Data size: ",test_data_size
     config.data_size = train_data_size
     eval_config.data_size = test_data_size
     eval_config.batch_size = 1
-    print "\n--- Read Limit Data ---"
-    limit_config = MediumConfig()
-    limit_config.data_size = 5
-    limit_config.sent_len = sent_len
-    limit_config.batch_size = 1
-    limit_data = build_limit_data(limit_config)
+
     #'''
     with tf.Graph().as_default():
         initializer = tf.random_uniform_initializer(-config.init_scale,
@@ -560,60 +559,85 @@ def main(_):
 
         print "\n--- Build Test Model ---"
         with tf.name_scope("Test"):
-            test_input = Input(config=eval_config, data=test_valid, \
+            test_input = Input(config=eval_config, data=test_data, \
                                     shuffle=False, name="TestInput")
             with tf.variable_scope("Model", reuse=True, initializer=initializer):
                 mtest = S2VTModel(is_training=False, config=eval_config, input_=test_input)
-
-        print "\n--- Build Limit Model ---"
-        with tf.name_scope("Limit"):
-            limit_input = Input(config=limit_config, data=limit_data, \
-                                    shuffle=False, name="LimitInput")
-            with tf.variable_scope("Model", reuse=True, initializer=initializer):
-                mlimit = S2VTModel(is_training=False, config=limit_config, input_=limit_input)
         #sv = tf.train.Supervisor(logdir=FLAGS.save_path)
         sv = tf.train.Supervisor(logdir=None)
         saver=sv.saver
         start_time = time.time()
         with sv.managed_session() as session:
             if FLAGS.train:
-                for i in range(config.max_max_epoch):
-                    fuck=1
-                    #'''
+                for epoch_step in range(config.max_max_epoch):
                     train_perplexity = run_epoch(session, m, \
                                             eval_op=m.train_op, verbose=True)
-                    #x, y, probs = run_predict(session, m)
-                    #print "----------\nX Data: ",x[0, 0, 0:5]
-                    #print "[Ans] %s" % ( ' '.join( map(to_word, y) ) )
-                    if ((i+1) % 50) == 0:
+                    if ((epoch_step+1) % 4) == 0:
                         run_time = int( (time.time() - start_time) / 60)
                         print("Epoch %d Train Perplexity: %.3f Run %d min" \
-                                    % ((i+1), train_perplexity, run_time))
+                                    % ((epoch_step+1), train_perplexity, run_time))
 
-                    if ((i+1) % 200) == 0:
-                        print "==== Epoch %d ====" % (i+1)
-                        print "--- Test Data ---"
-                        for i in range(3):
-                            x, y, probs, index = run_predict(session, mtest)
-                            print "----------\nX Data: ",x[0, 0, 0:5]
-                            print "[Ans] %s" % ( ' '.join( map(to_word, y) ) )
+                    if ((epoch_step+1) % 16) == 0:
+                        bleu_score = 0.0
+                        print "===== Epoch %d Test Data =====" % (epoch_step+1)
+                        print "===== Test Data ====="
+                        for i in range(eval_config.data_size):
+                            x, y, probs = run_predict(session, mtest)
                             pred_words = np.argmax(probs, axis=1)
                             _pos = np.where(pred_words == 2)[0][0]
-                            pred_list = pred_words[0:_pos+1].tolist()
-                            print "[Pred] %s" % ( ' '.join( map(to_word, pred_list) ) )
-                        print "\n--- Limit Data ---"
-                        for i in range(5):
-                            x, y, probs, index = run_predict(session, mlimit)
-                            print "----------\nX Data: ",x[0, 0, 0:5]
-                            pred_words = np.argmax(probs, axis=1)
-                            _pos = np.where(pred_words == 2)[0][0]
-                            pred_list = pred_words[0:_pos+1].tolist()
-                            print "[Pred] %s" % ( ' '.join( map(to_word, pred_list) ) )
-                        print
-                    '''
-            #if FLAGS.save_path and FLAGS.train:
-            #    print("Saving model to %s." % FLAGS.save_path)
-            #    saver.save(session, FLAGS.save_path, global_step=sv.global_step)
+                            pred_list = pred_words[0:_pos].tolist()
+                            cand_sent = ' '.join( map(to_word, pred_list) )
+                            _dic = test_raw_data.values()[i]
+                            _bleu = 0.0
+                            for sent in _dic['sent']:
+                                ref_sent = ' '.join(sent)
+                                _bleu += bleu.BLEU( cand_sent, ref_sent )
+                            bleu_score += (_bleu / len(_dic['sent']))
+
+                            if i < 3:
+                                print "--------"
+                                #print "[X]: ",x[0, 0, 0:7]
+                                print "[Pred] %s" % (cand_sent )
+                                #print _dic['feat'][0, 0:7]
+                                print ' '.join(_dic['sent'][0])
+                                print ' '.join(_dic['sent'][1])
+
+                        print "===== BLEU Score: [%.4f] =====\n" % \
+                                        (bleu_score/eval_config.data_size)
+
+            if (not FLAGS.train) and FLAGS.save_path:
+                saver.restore(session, FLAGS.save_path)
+                bleu_score = 0.0
+                print "===== Test Data ====="
+                for i in range(eval_config.data_size):
+                    x, y, probs = run_predict(session, mtest)
+                    pred_words = np.argmax(probs, axis=1)
+                    _pos = np.where(pred_words == 2)[0][0]
+                    pred_list = pred_words[0:_pos].tolist()
+                    cand_sent = ' '.join( map(to_word, pred_list) )
+                    _dic = test_raw_data.values()[i]
+                    _bleu = 0.0
+                    _sent_num = 0
+                    for sent in _dic['sent']:
+                        _sent_num += 1
+                        ref_sent = ' '.join(sent)
+                        _bleu += bleu.BLEU( cand_sent, ref_sent )
+                    if _sent_num != len(_dic['sent']):
+                        print "[Error] Sent_num != len(dic)"
+                    bleu_score += (_bleu / len(_dic['sent']))
+
+                    if i < 3:
+                        print "\n--------"
+                        print "[Pred] %s" % (cand_sent )
+                        print "[Sents]:"
+                        print ' '.join(_dic['sent'][0])
+                        print ' '.join(_dic['sent'][1])
+
+                print "\n BLEU Score: %.4f" % (bleu_score/eval_config.data_size)
+            if FLAGS.save_path and FLAGS.train:
+                print("Saving model to %s." % FLAGS.save_path)
+                saver.save(session, FLAGS.save_path, global_step=sv.global_step)
+    print "END"
     #'''
 if __name__ == "__main__":
     tf.app.run()
