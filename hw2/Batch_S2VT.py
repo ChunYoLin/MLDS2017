@@ -26,7 +26,9 @@ flags.DEFINE_string("save_path", None,
 flags.DEFINE_bool("train", False,
                   "Training model or Loading model")
 flags.DEFINE_bool("sample", True,
-                  "Training model or Loading model")
+                  "Use Sample Scheduling")
+flags.DEFINE_string("out", None,
+                  "Write out file")
 
 FLAGS = flags.FLAGS
 
@@ -203,7 +205,11 @@ class S2VTModel(object):
 
         frame_padding = tf.zeros([batch_size, sent_len, size], tf.float32)
         text_padding = tf.zeros([batch_size, frame_num, size/2], data_type(0))
-        sample_prob = tf.constant(0.4)
+        self._sample_prob = tf.Variable(1.0, trainable=False)
+        self._new_sample_prob = tf.placeholder( \
+                        tf.float32, shape=[], name="new_sample_prob")
+        self._sample_prob_update = tf.assign( \
+                        self._sample_prob, self._new_sample_prob)
 
         weight_1 = tf.get_variable("weight_1", [feat_size, size], \
                                             dtype=data_type(0))
@@ -269,7 +275,7 @@ class S2VTModel(object):
                         second_input_2 = predict_input()
                     elif FLAGS.sample:
                         _rand = tf.random_uniform([1])[0]
-                        second_input_2 = tf.cond(_rand > sample_prob, \
+                        second_input_2 = tf.cond(_rand <= self._sample_prob, \
                                     target_input, predict_input)
                     else:
                         second_input_2 = target_input()
@@ -334,6 +340,10 @@ class S2VTModel(object):
     def assign_lr(self, session, lr_value):
         session.run(self._lr_update, feed_dict={self._new_lr: lr_value})
 
+    def assign_sample(self, session, sample_value):
+        session.run(self._sample_prob_update, \
+            feed_dict={self._new_sample_prob: sample_value})
+
     @property
     def input(self):
         return self._input
@@ -371,6 +381,10 @@ class S2VTModel(object):
         return self._probs
 
     @property
+    def sample_prob(self):
+        return self._sample_prob
+
+    @property
     def train_op(self):
         return self._train_op
 
@@ -380,6 +394,7 @@ def run_epoch(session, model, eval_op=None, verbose=False):
     iters = 0
     fetches = {
             "cost": model.cost,
+            "sample": model.sample_prob
     }
     if eval_op is not None:
         fetches["eval_op"] = eval_op
@@ -388,14 +403,12 @@ def run_epoch(session, model, eval_op=None, verbose=False):
         feed_dict = {}
         vals = session.run(fetches, feed_dict)
         cost = vals["cost"]
+        sample = vals["sample"]
 
         costs += cost
         iters += 1
-        if verbose and step % (model.input.epoch_size // 10) == 10:
-            print("%.3f perplexity: %.3f" %
-                        (step * 1.0 / model.input.epoch_size, (costs / iters)))
 
-    return (costs / iters)
+    return (costs / iters), sample
 
 def run_predict(session, model, eval_op=None, verbose=False):
     """Runs the model on the given data."""
@@ -425,7 +438,7 @@ class MediumConfig(object):
     num_steps = 0
     hidden_size = 256
     max_epoch = 6
-    max_max_epoch = 1000
+    max_max_epoch = 500
     keep_prob = 0.5
     lr_decay = 0.8
     batch_size = 50
@@ -522,12 +535,14 @@ def main(_):
                     #m.assign_lr(session, config.learning_rate * lr_decay)
 
                     #print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
-                    train_perplexity = run_epoch(session, m, \
+                    sample_decay = 1.0 - (float(epoch_step) / config.max_max_epoch)
+                    m.assign_sample(session, sample_decay)
+                    perplexity, sample = run_epoch(session, m, \
                                             eval_op=m.train_op, verbose=True)
                     if ((epoch_step+1) % 20) == 0:
                         run_time = int( (time.time() - start_time) / 60 )
-                        print("Epoch %d Train Perplexity: %.3f  Run %d min" \
-                                    % ((epoch_step+1), train_perplexity, run_time))
+                        print("Epoch %d Perplexity %.3f Sample %.2f  Run %d min" \
+                                    % ((epoch_step+1), perplexity, sample, run_time))
                     if ((epoch_step+1) % 100) == 0:
                         bleu_score = 0.0
                         print "===== Epoch %d Test Data =====" % (epoch_step+1)
@@ -586,6 +601,33 @@ def main(_):
                         print ' '.join(_dic['sent'][1])
 
                 print "\n BLEU Score: %.4f" % (bleu_score/eval_config.data_size)
+            if (not FLAGS.train) and FLAGS.out:
+                saver.restore(session, FLAGS.save_path)
+                bleu_score = 0.0
+                with open(FLAGS.out, "wb") as F:
+                    for i in range(eval_config.data_size):
+                        x, y, probs = run_predict(session, mtest)
+                        pred_words = np.argmax(probs, axis=1)
+                        _pos = np.where(pred_words == 2)[0][0]
+                        pred_list = pred_words[0:_pos].tolist()
+                        cand_sent = ' '.join( map(to_word, pred_list) )
+                        _dic = test_raw_data.values()[i]
+                        _bleu = 0.0
+                        _sent_num = 0
+                        for sent in _dic['sent']:
+                            _sent_num += 1
+                            ref_sent = ' '.join(sent)
+                            _bleu += bleu.BLEU( cand_sent, ref_sent )
+                        _bleu /= len(_dic['sent'])
+                        bleu_score += (_bleu / len(_dic['sent']))
+
+                        F.write( ("\n---- %d [Bleu : %.4f]----\n") % (i, _bleu) )
+                        F.write( ("[Pred] %s\n") % cand_sent )
+                        F.write("[Sents]:\n")
+                        F.write( ("%s\n") % ' '.join(_dic['sent'][0]) )
+                        F.write( ("%s\n") % ' '.join(_dic['sent'][1]) )
+                    F.write( ("\n BLEU Score: %.4f") % (bleu_score/eval_config.data_size) )
+
             if FLAGS.save_path and FLAGS.train:
                 print("Saving model to %s." % FLAGS.save_path)
                 saver.save(session, FLAGS.save_path, global_step=sv.global_step)
