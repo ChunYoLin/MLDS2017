@@ -43,6 +43,20 @@ def _read_test_data():
         frame_data = np.asarray(frame_data, dtype = np.float32)
     return frame_data, test_captions
 
+def _read_test_captions():
+    with open("./MLDS_hw2_data/testing_public_label.json") as test:
+        test_json = json.load(test)
+        test_captions = []
+        frame_data = []
+        for i in range(len(test_json)):
+            captions = []
+            for caption in test_json[i]["caption"]:
+                caption = caption[:len(caption) - 1] + ' EOS'
+                caption = re.sub(",", " ,", caption)
+                captions.append(caption)
+            test_captions.append(captions)
+    return test_captions
+
 def _read_time_limited_data():
     feat_path = './MLDS_hw2_time_limited/feat/'
     frame_data = []

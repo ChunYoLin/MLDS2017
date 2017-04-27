@@ -3,6 +3,8 @@ import numpy as np
 import data_reader
 import time
 import random
+import bleu_eval as bleu
+import re
 
 class S2VT_input(object):
   def __init__(self, frame_data, text_data, sent_len, orig_sent_len, word_id, batch_size, name = None):
@@ -84,14 +86,6 @@ class S2VT_model(object):
                         embed_idx = [input_.word_id["BOS"] for _ in range(batch_size)]
                     else:
                         if is_training:
-                            samples = tf.multinomial(tf.log([[10., 10.]]), 1)
-                            samples = tf.reshape(samples, [-1])
-                            self._samples = samples
-                            #  scheduling sampling
-                            #  if samples == 0:
-                                #  embed_idx = input_.targets_batch[:, time_step - 80 - 1]
-                            #  elif samples == 1:
-                                #  embed_idx = tf.argmax(bot_probs, 1)
                             embed_idx = input_.targets_batch[:, time_step - 80 - 1]
                             word_idx = tf.argmax(bot_probs, 1)
                             bot_output_word.append(word_idx)
@@ -109,8 +103,6 @@ class S2VT_model(object):
                     bot_state_in = bot_state_out
                     bot_final_state = bot_state_out
                     bot_outputs.append(bot_output)
-                if time_step == frame_len - 1:
-                    self._frame_code = bot_state_out
 
         output = tf.reshape(tf.concat(axis = 1, values = bot_outputs), [-1, size])
         logits = tf.matmul(output, softmax_w) + softmax_b
@@ -168,10 +160,6 @@ class S2VT_model(object):
         return self._train_op
 
     @property
-    def frame_code(self):
-        return self._frame_code
-
-    @property
     def bot_input_word(self):
         return self._bot_input_word
 
@@ -191,10 +179,6 @@ class S2VT_model(object):
     def final_output_word(self):
         return self._final_output_word
 
-    @property
-    def samples(self):
-        return self._samples
-
 def run_epoch(session, model, inv_word_id, eval_op = None, verbose = False):
     start_time = time.time()
     costs = 0.
@@ -203,12 +187,10 @@ def run_epoch(session, model, inv_word_id, eval_op = None, verbose = False):
     #  bot_state = session.run(model.bot_init_state)
 
     fetches = {
-        "frame_code": model.frame_code,
         "target_word": model.input.targets_batch,
         "cost": model.cost,
         "final_state": model.final_state,
         "final_word": model.final_output_word,
-        "samples": model.samples,
     }
     if eval_op is not None:
         fetches["eval_op"] = eval_op
@@ -221,29 +203,9 @@ def run_epoch(session, model, inv_word_id, eval_op = None, verbose = False):
         tgt_word = vals["target_word"]
         pred_word = vals["final_word"]
         pred_word = np.asarray(pred_word)
-        #  print vals["samples"]
 
         costs += cost
         iters += model.input.num_steps
-
-        #  if step == 0 or step == 10 or step == 20:
-            #  print '-------------------------------------------------------'
-            #  sent = ''
-            #  for w in pred_word[:, 1]:
-                #  if w != 0:
-                    #  sent += inv_word_id[w] + ' '
-            #  print "predict sentence"
-            #  print sent
-            #  print
-
-            #  sent = ''
-            #  for w in tgt_word[1]:
-                #  if w != 0:
-                    #  sent += inv_word_id[w] + ' '
-            #  print "target sentence"
-            #  print sent
-            #  print
-            #  print '-------------------------------------------------------'
 
         if verbose and step % (model.input.epoch_size // 10) == 10:
         #  if verbose and step % 10 == 0:
@@ -256,11 +218,8 @@ def run_predict(session, model, eval_op = None, verbose = False):
     start_time = time.time()
     costs = 0.
     iters = 0
-    #  top_state = session.run(model.top_init_state)
-    #  bot_state = session.run(model.bot_init_state)
     fetches = {
         "input_frame": model._input.input_batch,
-        "frame_code": model.frame_code,
         "input_word": model.bot_input_word[1:],
         "target_word": model.input.targets_batch,
         "pred_word": model.final_output_word,
@@ -271,8 +230,6 @@ def run_predict(session, model, eval_op = None, verbose = False):
     vals = session.run(fetches, feed_dict)
     input_word = model.bot_input_word[0] + vals["input_word"]
     input_word = np.reshape(np.asarray(input_word), [-1])
-    #  print "---------------frame code-----------------"
-    #  print vals["frame_code"][0][256:]
 
     tgt_word = vals["target_word"]
     pred_word = vals["pred_word"]
@@ -292,7 +249,7 @@ with tf.Graph().as_default():
                 sent_len = sent_len, 
                 orig_sent_len = orig_sent_len,
                 word_id = word_id,
-                batch_size = 50,
+                batch_size = 20,
                 name = "train_input")
         with tf.variable_scope("model", reuse = False, initializer = initializer):
             train_model = S2VT_model(is_training = True, input_ = train_input)
@@ -311,55 +268,33 @@ with tf.Graph().as_default():
         with tf.variable_scope("model", reuse = True, initializer = initializer):
             test_model = S2VT_model(is_training = False, input_ = test_input)
 
-    f_data, feat_files = data_reader._read_time_limited_data()
-    with tf.name_scope("time_limited"):
-        time_limited_input = S2VT_input(
-                frame_data = f_data, 
-                text_data = t_data_id, 
-                sent_len = sent_len, 
-                orig_sent_len = orig_sent_len,
-                word_id = word_id,
-                batch_size = 1,
-                name = "time_limited_input")
-        with tf.variable_scope("model", reuse = True, initializer = initializer):
-            time_limited_model = S2VT_model(is_training = False, input_ = time_limited_input)
-
     sv = tf.train.Supervisor(logdir = None)
     saver = sv.saver
     with sv.managed_session() as session:
-        for i in range(1000):
+        for i in range(2000):
             cost = run_epoch(session = session, model = train_model, inv_word_id = inv_word_id, eval_op = train_model.train_op, verbose = True)
             print "Epoch %d, Cost %f"%(i, cost)
             if (i + 1) % 100 == 0:
                 print "save model..."
                 saver.save(session, './S2VT_model/S2VT_inputref', global_step = i + 1)
-                for j in range(5):
-                    input_word, tgt_word, pred_word = run_predict(session = session, model = time_limited_model, eval_op = None, verbose = False)
-                    print "[video id]: %s"%feat_files[j]
-                    sent = ''
+        #  saver.restore(session, './S2VT_model/S2VT-600')
+                test_captions = data_reader._read_test_captions()
+                bleu_score = 0.
+                for j in range(test_input.epoch_size):
+                    input_word, tgt_word, pred_word = run_predict(session = session, model = test_model, eval_op = None, verbose = False)
+                    print "Testing %d"%j
+                    print '-------------------------------------------------------'
+                    pred_sent = ''
                     for w in pred_word[:, 0]:
                         if w != 0:
-                            sent += inv_word_id[w] + ' '
-                    print "[predict sentence]: %s"%sent
-
-        #  saver.restore(session, './S2VT_model/S2VT-1700')
-        for j in range(test_input.epoch_size):
-            input_word, tgt_word, pred_word = run_predict(session = session, model = test_model, eval_op = None, verbose = False)
-            print "Testing %d"%j
-            print '-------------------------------------------------------'
-            sent = ''
-            for w in tgt_word[0]:
-                sent += inv_word_id[w] + ' '
-            print "[target sentence] %s"%sent
-
-            sent = ''
-            for w in input_word:
-                sent += inv_word_id[w] + ' '
-            print "[input sentence] %s"%sent 
-
-            sent = ''
-            for w in pred_word[:, 0]:
-                if w != 0:
-                    sent += inv_word_id[w] + ' '
-            print "[predict sentence]: %s"%sent
-            print '-------------------------------------------------------'
+                            pred_sent += inv_word_id[w] + ' '
+                    print "[predict sentence]: %s"%pred_sent
+                    for tar_sent in test_captions[j]:
+                        print "[target sentence] %s"%tar_sent
+                        _bleu = 0.
+                        pred_sent = re.sub('EOS', '', pred_sent)
+                        tar_sent = re.sub('EOS', '', tar_sent)
+                        _bleu += bleu.BLEU(pred_sent, tar_sent)
+                        bleu_score += (_bleu / len(test_captions[j]))
+                    print '-------------------------------------------------------'
+                print "===== BLEU Score: [%.4f] =====\n"%(bleu_score / test_input.epoch_size)
