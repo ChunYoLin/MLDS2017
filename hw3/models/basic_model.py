@@ -25,7 +25,7 @@ class GAN(object):
         self.sess = sess
         self.gf_dim = 64
         self.df_dim = 64
-        self.batch_size = 1
+        self.batch_size = 64
         self.orig_sent_size = 4800
         self.sent_size = 128
         self.d_bn0 = batch_norm(name="d_bn0")
@@ -137,8 +137,10 @@ class GAN(object):
             h0 = lrelu(conv2d(image, self.df_dim, name='d_h0_conv'))
             h1 = lrelu(self.d_bn1(conv2d(h0, self.df_dim*2, name='d_h1_conv')))
             sent_repicate = sent
-            for i in range(int(h1.shape[1]) * int(h1.shape[1]) - 1):
+            print sent.shape
+            for i in range(int(h1.shape[1])**2 - 1):
                 sent_repicate = tf.concat([sent_repicate, sent], 1)
+            print sent.shape
             sent_repicate = tf.reshape(
                 sent_repicate,
                 [self.batch_size, int(h1.shape[1]), int(h1.shape[1]), -1])
@@ -157,7 +159,7 @@ class GAN(object):
             s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
             # project `z` and reshape
             self.z_, self.h0_w, self.h0_b = linear(
-                z, self.gf_dim*2*s_h4*s_w4, 'g_h0_lin', with_w=True)
+                z, (self.gf_dim*2*s_h4*s_w4), 'g_h0_lin', with_w=True)
 
             self.h0 = tf.reshape(
                 self.z_, [-1, s_h4, s_w4, self.gf_dim * 2])
