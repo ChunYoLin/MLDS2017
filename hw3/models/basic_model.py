@@ -8,8 +8,10 @@ import skimage.transform
 import matplotlib.pyplot as plt
 from ops import *
 import data_reader
+from data_reader import realimg
 import os
 import re
+import cPickle as pk
 
 
 image_path = '/home/chunyo/MLDS2017/hw3/data/faces/'
@@ -28,54 +30,44 @@ class GAN(object):
         self.gf_dim = 64
         self.df_dim = 64
         self.batch_size = 64
-        self.orig_sent_size = 4800
-        self.sent_size = 128
+        self.orig_embed_size = 4800
+        self.embed_size = 128
         self.d_bn0 = batch_norm(name="d_bn0")
         self.d_bn1 = batch_norm(name="d_bn1")
         self.g_bn0 = batch_norm(name="g_bn0")
         self.g_bn1 = batch_norm(name="g_bn1")
+        with open("img_objs.pk", "r") as f:
+            img_objs = pk.load(f)
+        batch = data_reader.get_batch(img_objs, self.batch_size)
+        self.img_batch = batch[0]
+        self.match_embed_batch = batch[1]
+        self.mismatch_embed_batch = batch[2]
+
         self.build_model()
 
     def build_model(self):
         #  Encode matching text description
-        self.match_sent_highdim = tf.placeholder(
-            tf.float32, shape=[self.batch_size, self.orig_sent_size],
-            name="match_sent_highdim")
-        self.match_sent = self.sent_dim_reducer(self.match_sent_highdim)
-        match_sent = self.match_sent
+        self.h = self.sent_dim_reducer(self.match_embed_batch)
         #  Encode mis-matching text description
-        self.mismatch_sent_highdim = tf.placeholder(
-            tf.float32, shape=[self.batch_size, self.orig_sent_size],
-            name="mismatch_sent_highdim")
-        self.mismatch_sent = self.sent_dim_reducer(
-            self.mismatch_sent_highdim, reuse=True)
-        mismatch_sent = self.match_sent
-        #  Input real image
-        image_dims = [self.output_height, self.output_width, self.c_dim]
-        self.real_image = tf.placeholder(
-            tf.float32, [self.batch_size] + image_dims,
-            name='real_image')
-        real_image = self.real_image
+        self.h_ = self.sent_dim_reducer(self.mismatch_embed_batch, reuse=True)
         #  Draw sample of random noise
         z_dims = 100
         dist = tf.contrib.distributions.Normal(loc=0., scale=1.)
-        sample_z = dist.sample([self.batch_size, z_dims])
-        #  Concat the noise to match sentence
-        self.G_in = tf.concat([sample_z, match_sent], 1)
+        self.z = dist.sample([self.batch_size, z_dims])
+        self.G_in = tf.concat([self.z, self.h], 1)
         #  Forward through generator
         self.fake_image = self.generator(self.G_in)
-        fake_image = self.fake_image
         #  real image, right text
         self.Sr, self.Sr_logits = self.discriminator(
-            match_sent, real_image, reuse=False)
+            self.h, self.img_batch, reuse=False)
         Sr, Sr_logits = self.Sr, self.Sr_logits
         #  real image, wrong text
         self.Sw, self.Sw_logits = self.discriminator(
-            mismatch_sent, real_image, reuse=True)
+            self.h_, self.img_batch, reuse=True)
         Sw, Sw_logits = self.Sw, self.Sw_logits
         #  fake image, right text
         self.Sf, self.Sf_logits = self.discriminator(
-            match_sent, fake_image, reuse=True)
+            self.h, self.fake_image, reuse=True)
         Sf, Sf_logits = self.Sf, self.Sf_logits
         #  loss of discriminator
         #  real image loss of discriminator
@@ -112,24 +104,22 @@ class GAN(object):
         sess = self.sess
         #  initial all variable
         sess.run(tf.global_variables_initializer())
-        for epoch in 1000:
-            imgs_batch, match_sent_batch, mismatch_sent_batch = 
-            data_reader.get_batch(img_objs, self.batch_size)
-
-        #  input sentence
-        #  input image
-        #  for img in os.listdir(image_path):
-            #  print img
+        tf.train.start_queue_runners(sess)
+        for epoch in range(1000):
+            d_loss = sess.run(self.d_loss)
+            g_loss = sess.run(self.g_loss)
+            print "d_loss {}".format(d_loss)
+            print "g_loss {}".format(g_loss)
 
     def sent_dim_reducer(self, sent, reuse=False):
         with tf.variable_scope("sent_dim_reducer") as scope:
             if reuse:
                 scope.reuse_variables()
             w = tf.get_variable(
-                "g_sent_reduce_w", [self.orig_sent_size, self.sent_size],
+                "g_sent_reduce_w", [self.orig_embed_size, self.embed_size],
                 tf.float32, tf.random_normal_initializer(stddev=0.01))
             b = tf.get_variable(
-                "g_sent_reduce_b", [self.sent_size],
+                "g_sent_reduce_b", [self.embed_size],
                 tf.float32, initializer=tf.constant_initializer(0.0))
             embed = tf.matmul(sent, w) + b
             return tf.sigmoid(embed)

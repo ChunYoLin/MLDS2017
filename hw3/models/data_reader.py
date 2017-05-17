@@ -4,6 +4,7 @@ import skimage
 import skimage.io
 import skimage.transform
 import tensorflow as tf
+import numpy as np
 import cPickle as pk
 from skip_thoughts import skipthoughts
 
@@ -27,29 +28,44 @@ def get_batch(img_objs, batch_size=64):
     data_size = len(img_objs)
     i = tf.train.range_input_producer(data_size, shuffle=False).dequeue()
 
-    img = img_objs.img
+    img = []
+    match_embed = []
+    mismatch_embed = []
+    for obj in img_objs:
+        img.append(obj.img / 255.)
+        match_embed.append(obj.match_embed[0])
+        mismatch_embed.append(obj.mismatch_embed[0])
+    img = np.asarray(img)
+    match_embed = np.asarray(match_embed)
+    mismatch_embed = np.asarray(mismatch_embed)
+
     img_tensor = tf.convert_to_tensor(img, name='img_data', dtype=tf.float32)
     img_data = tf.strided_slice(img_tensor, [i, 0, 0, 0], [(i+1), 96, 96, 3])
     img_data = tf.reshape(img_data, [96, 96, 3])
+    img_data.set_shape([96, 96, 3])
 
-    match_sent = img_objs.match_sent
-    match_sent_tensor = tf.convert_to_tensor(
-        match_sent, name='match_sent_data', dtype=tf.float32)
-    match_sent_data = tf.strided_slice(match_sent_tensor, [i, 0], [(i+1), 4800])
+    match_embed_tensor = tf.convert_to_tensor(
+        match_embed, name='match_embed_data', dtype=tf.float32)
+    match_embed_data = tf.strided_slice(match_embed_tensor, [i, 0], [(i+1), 4800])
+    match_embed_data = tf.reshape(match_embed_data, [4800])
+    match_embed_data.set_shape([4800])
 
-    mismatch_sent = img_objs.mismatch_sent
-    mismatch_sent_tensor = tf.convert_to_tensor(
-        mismatch_sent, name='mismatch_sent_data', dtype=tf.float32)
-    mismatch_sent_data = tf.strided_slice(mismatch_sent_tensor, [i, 0], [(i+1), 4800])
-    img_batch, match_sent_batch, mismatch_sent_batch = tf.train.batch(
-        [img_data, match_sent_data, mismatch_sent_data])
+    mismatch_embed_tensor = tf.convert_to_tensor(
+        mismatch_embed, name='mismatch_embed_data', dtype=tf.float32)
+    mismatch_embed_data = tf.strided_slice(mismatch_embed_tensor, [i, 0], [(i+1), 4800])
+    mismatch_embed_data = tf.reshape(mismatch_embed_data, [4800])
+    mismatch_embed_data.set_shape([4800])
 
-    return img_batch, match_sent_batch, mismatch_sent_batch
+    img_batch, match_embed_batch, mismatch_embed_batch = tf.train.batch(
+        [img_data, match_embed_data, mismatch_embed_data], batch_size=batch_size)
+
+    return img_batch, match_embed_batch, mismatch_embed_batch
     
 def build_imgs():
     with open('/home/newslab/MLDS2017/hw3/data/tags_clean.csv', 'r') as tag_file:
         tag_reader = csv.reader(tag_file, delimiter='\t')
         img_objs = []
+        num = 0
         for row in tag_reader:
             img_id = row[0].split(',')[0]
             tag_row = [row[0].split(',')[1]] + row[1:]
@@ -70,6 +86,8 @@ def build_imgs():
                     match_sent.append('{} {}'.format(t_h, t_e))
             if match_sent:
                 img_objs.append(realimg(img, match_sent))
+                num += 1
+            if num >= 64: break
         model = skipthoughts.load_model()
         k = 0
         for img_obj1 in img_objs:
@@ -86,5 +104,4 @@ def build_imgs():
             k += 1
     with open("img_objs.pk", "w") as f:
         pk.dump(img_objs, f)
-build_imgs()
 
