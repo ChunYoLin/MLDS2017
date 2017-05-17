@@ -7,8 +7,10 @@ import skimage.io
 import skimage.transform
 import matplotlib.pyplot as plt
 from ops import *
+import data_reader
 import os
 import re
+
 
 image_path = '/home/chunyo/MLDS2017/hw3/data/faces/'
 sent_path = '/home/chunyo/MLDS2017/hw3/data/tags_clean.csv/'
@@ -110,9 +112,11 @@ class GAN(object):
         sess = self.sess
         #  initial all variable
         sess.run(tf.global_variables_initializer())
+        for epoch in 1000:
+            imgs_batch, match_sent_batch, mismatch_sent_batch = 
+            data_reader.get_batch(img_objs, self.batch_size)
+
         #  input sentence
-        #  model = skipthoughts.load_model()
-        #  vecs = skipthoughts.encode(model, ['blue eyes'])
         #  input image
         #  for img in os.listdir(image_path):
             #  print img
@@ -137,10 +141,8 @@ class GAN(object):
             h0 = lrelu(conv2d(image, self.df_dim, name='d_h0_conv'))
             h1 = lrelu(self.d_bn1(conv2d(h0, self.df_dim*2, name='d_h1_conv')))
             sent_repicate = sent
-            print sent.shape
             for i in range(int(h1.shape[1])**2 - 1):
                 sent_repicate = tf.concat([sent_repicate, sent], 1)
-            print sent.shape
             sent_repicate = tf.reshape(
                 sent_repicate,
                 [self.batch_size, int(h1.shape[1]), int(h1.shape[1]), -1])
