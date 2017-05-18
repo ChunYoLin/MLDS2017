@@ -19,6 +19,7 @@ class realimg(object):
         match_sent = self.match_sent
         if match_sent:
             self.match_embed = skipthoughts.encode(model, match_sent)
+
         mismatch_sent = self.mismatch_sent
         if mismatch_sent:
             self.mismatch_embed = skipthoughts.encode(model, mismatch_sent)
@@ -87,6 +88,7 @@ def build_imgs():
             if match_sent:
                 img_objs.append(realimg(img, match_sent))
                 num += 1
+                if num >= 64: break
         model = skipthoughts.load_model()
         k = 0
         for img_obj1 in img_objs:
@@ -101,6 +103,6 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    #  with open("img_objs.pk", "w") as f:
-        #  pk.dump(img_objs, f)
-#  build_imgs()
+    with open("img_objs_64.pk", "w") as f:
+        pk.dump(img_objs, f)
+build_imgs()
