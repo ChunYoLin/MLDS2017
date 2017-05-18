@@ -87,7 +87,6 @@ def build_imgs():
             if match_sent:
                 img_objs.append(realimg(img, match_sent))
                 num += 1
-            if num >= 64: break
         model = skipthoughts.load_model()
         k = 0
         for img_obj1 in img_objs:
@@ -104,4 +103,4 @@ def build_imgs():
             k += 1
     with open("img_objs.pk", "w") as f:
         pk.dump(img_objs, f)
-
+#  build_imgs()
