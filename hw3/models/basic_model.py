@@ -31,7 +31,7 @@ class GAN(object):
         #  network setting
         self.gf_dim = 64
         self.df_dim = 64
-        self.batch_size = 8
+        self.batch_size = 64
         self.orig_embed_size = 4800
         self.embed_size = 128
         #  batch_norm of discriminator
@@ -48,18 +48,23 @@ class GAN(object):
         self.g_bn4 = batch_norm(name="g_bn4")
         #  input batch
         self.match_sent = []
+        print "loading training data......"
         with open("img_objs.pk", "r") as f:
             img_objs = pk.load(f)
         for img in img_objs:
             for sent in img.match_sent:
                 self.match_sent.append(sent)
+        img_objs = img_objs[:12800]
         self.data_size = len(img_objs)
+        print "number of image {}".format(self.data_size)
         self.batch_num = self.data_size / self.batch_size
+        print "number of batch {}".format(self.batch_num)
         batch = data_reader.get_batch(img_objs, self.batch_size)
         self.img_batch = batch[0]
         self.match_embed_batch = batch[1]
         self.mismatch_embed_batch = batch[2]
         #  build model
+        print "building model......"
         self.build_model()
 
     def build_model(self):
@@ -127,21 +132,21 @@ class GAN(object):
         #  initial all variable
         sess.run(tf.global_variables_initializer())
         tf.train.start_queue_runners(sess)
-        for epoch in range(1000):
+        for epoch in range(100):
             print "epoch {}".format(epoch)
             for batch in range(self.batch_num):
+                print "batch {}/{}".format(batch, self.batch_num)
                 d_loss, _ = sess.run([self.d_loss, d_optim])
-                g_loss, _ = sess.run([self.g_loss, g_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
-            if epoch % 100 == 0:
+            if (epoch+1) % 10 == 0:
                 with open("./sample/match_sent/sample_sent.txt", "w") as f:
                     for batch in range(self.batch_num):
                         sample_imgs = sess.run(self.sample)
                         for img_idx, img in enumerate(sample_imgs):
-                            idx = batch * self.batch_num + img_idx
+                            idx = batch * self.batch_size + img_idx
                             skimage.io.imsave("./sample/{}.jpg".format(idx), img)
                             f.write("{}: {}\n".format(idx, self.match_sent[idx]))
 

@@ -101,6 +101,6 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    with open("img_objs.pk", "w") as f:
-        pk.dump(img_objs, f)
+    #  with open("img_objs.pk", "w") as f:
+        #  pk.dump(img_objs, f)
 #  build_imgs()
