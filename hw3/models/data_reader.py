@@ -105,4 +105,3 @@ def build_imgs():
             k += 1
     with open("img_objs_64.pk", "w") as f:
         pk.dump(img_objs, f)
-build_imgs()

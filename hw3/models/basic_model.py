@@ -31,7 +31,7 @@ class GAN(object):
         #  network setting
         self.gf_dim = 64
         self.df_dim = 64
-        self.batch_size = 64
+        self.batch_size = 8
         self.orig_embed_size = 4800
         self.embed_size = 128
         #  batch_norm of discriminator
@@ -41,6 +41,7 @@ class GAN(object):
         self.d_bn3 = batch_norm(name="d_bn3")
         self.d_bn4 = batch_norm(name="d_bn4")
         self.d_bn5 = batch_norm(name="d_bn5")
+        self.d_bn6 = batch_norm(name="d_bn6")
         #  batch_norm of generator 
         self.g_bn0 = batch_norm(name="g_bn0")
         self.g_bn1 = batch_norm(name="g_bn1")
@@ -130,9 +131,9 @@ class GAN(object):
         #  initial all variable
         sess.run(tf.global_variables_initializer())
         tf.train.start_queue_runners(sess)
-        for epoch in range(100):
+        for epoch in range(1000):
             for batch in range(self.batch_num):
-                print "epoch {} batch {}/{}".format(epoch, batch, self.batch_num)
+                print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
                 d_loss, _, Sr, Sw, Sf = sess.run([self.d_loss, d_optim, self.Sr, self.Sw, self.Sf])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
@@ -159,7 +160,7 @@ class GAN(object):
                 "g_sent_reduce_b", [self.embed_size],
                 tf.float32, initializer=tf.constant_initializer(0.0))
             embed = tf.matmul(sent, w) + b
-            return tf.sigmoid(embed)
+            return tf.nn.relu(embed)
 
     def discriminator(self, sent, image, reuse=False):
         with tf.variable_scope("discriminator") as scope:
@@ -177,11 +178,12 @@ class GAN(object):
             sent_repicate = tf.reshape(
                 sent_repicate,
                 [self.batch_size, int(h5.shape[1]), int(h5.shape[1]), -1])
-
             h5 = tf.concat([h5, sent_repicate], 3)
-            h6 = linear(tf.reshape(h5, [self.batch_size, -1]), 1, 'd_h5_lin')
+            h6 = lrelu(self.d_bn6(conv2d(
+                h5, self.df_dim*32, 1, 1, 1, 1, name = "d_h6_conv")))
+            h7 = linear(tf.reshape(h5, [self.batch_size, -1]), 1, 'd_h5_lin')
 
-        return tf.nn.sigmoid(h6), h6
+        return tf.nn.sigmoid(h7), h7
 
     def generator(self, z, reuse=False):
         with tf.variable_scope("generator") as scope:
