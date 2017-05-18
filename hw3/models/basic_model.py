@@ -40,12 +40,14 @@ class GAN(object):
         self.d_bn2 = batch_norm(name="d_bn2")
         self.d_bn3 = batch_norm(name="d_bn3")
         self.d_bn4 = batch_norm(name="d_bn4")
+        self.d_bn5 = batch_norm(name="d_bn5")
         #  batch_norm of generator 
         self.g_bn0 = batch_norm(name="g_bn0")
         self.g_bn1 = batch_norm(name="g_bn1")
         self.g_bn2 = batch_norm(name="g_bn2")
         self.g_bn3 = batch_norm(name="g_bn3")
         self.g_bn4 = batch_norm(name="g_bn4")
+        self.g_bn5 = batch_norm(name="g_bn5")
         #  input batch
         self.match_sent = []
         print "loading training data......"
@@ -84,37 +86,33 @@ class GAN(object):
         self.Sr, self.Sr_logits = self.discriminator(
             self.h, self.img_batch, reuse=False)
         Sr, Sr_logits = self.Sr, self.Sr_logits
+        self.d_loss_real = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.ones_like(Sr), logits=Sr_logits))
         #  real image, wrong text
         self.Sw, self.Sw_logits = self.discriminator(
             self.h_, self.img_batch, reuse=True)
         Sw, Sw_logits = self.Sw, self.Sw_logits
+        self.d_loss_Sw = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(Sw), logits=Sw_logits))
         #  fake image, right text
         self.Sf, self.Sf_logits = self.discriminator(
             self.h, self.fake_image, reuse=True)
         Sf, Sf_logits = self.Sf, self.Sf_logits
-        #  real image loss of discriminator
-        self.d_loss_real = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.ones_like(Sr), logits=Sr_logits))
-        #  wrong sentence loss of discriminator
-        self.d_loss_Sw = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.zeros_like(Sw), logits=Sw_logits))
-        #  fake image loss of discriminator
         self.d_loss_Sf = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.zeros_like(Sf), logits=Sf_logits))
-        #  combine discriminator loss
+        #  loss of discriminator
         self.d_loss_fake = (self.d_loss_Sw + self.d_loss_Sf) / 2.
         self.d_loss = self.d_loss_real + self.d_loss_fake
-        #  self.d_loss = self.d_loss_real + self.d_loss_Sf
-        
         #  loss of generator
         self.g_loss = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.ones_like(Sf), logits=Sf_logits))
-        #  self.d_loss = tf.reduce_mean(tf.log(Sr) + (tf.log(1-Sw) + tf.log(1-Sf) / 2.))
-        #  self.g_loss = tf.reduce_mean(tf.log(Sf))
+
+        #  self.d_loss = -1 * tf.reduce_mean(tf.log(Sr) + (tf.log(1-Sw) + tf.log(1-Sf) / 2.))
+        #  self.g_loss = -1 * tf.reduce_mean(tf.log(Sf))
         #  seperate the variables of discriminator and generator by name
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
@@ -133,14 +131,14 @@ class GAN(object):
         sess.run(tf.global_variables_initializer())
         tf.train.start_queue_runners(sess)
         for epoch in range(100):
-            print "epoch {}".format(epoch)
             for batch in range(self.batch_num):
-                print "batch {}/{}".format(batch, self.batch_num)
-                d_loss, _ = sess.run([self.d_loss, d_optim])
+                print "epoch {} batch {}/{}".format(epoch, batch, self.batch_num)
+                d_loss, _, Sr, Sw, Sf = sess.run([self.d_loss, d_optim, self.Sr, self.Sw, self.Sf])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
+                print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
             if (epoch+1) % 10 == 0:
                 with open("./sample/match_sent/sample_sent.txt", "w") as f:
                     for batch in range(self.batch_num):
@@ -172,17 +170,18 @@ class GAN(object):
             h2 = lrelu(self.d_bn2(conv2d(h1, self.df_dim*4, name='d_h2_conv')))
             h3 = lrelu(self.d_bn3(conv2d(h2, self.df_dim*8, name='d_h3_conv')))
             h4 = lrelu(self.d_bn4(conv2d(h3, self.df_dim*16, name='d_h4_conv')))
+            h5 = lrelu(self.d_bn4(conv2d(h4, self.df_dim*32, name='d_h5_conv')))
             sent_repicate = sent
-            for i in range(int(h4.shape[1])**2 - 1):
+            for i in range(int(h5.shape[1])**2 - 1):
                 sent_repicate = tf.concat([sent_repicate, sent], 1)
             sent_repicate = tf.reshape(
                 sent_repicate,
-                [self.batch_size, int(h4.shape[1]), int(h4.shape[1]), -1])
+                [self.batch_size, int(h5.shape[1]), int(h5.shape[1]), -1])
 
-            h4 = tf.concat([h4, sent_repicate], 3)
-            h5 = linear(tf.reshape(h4, [self.batch_size, -1]), 1, 'd_h4_lin')
+            h5 = tf.concat([h5, sent_repicate], 3)
+            h6 = linear(tf.reshape(h5, [self.batch_size, -1]), 1, 'd_h6_lin')
 
-        return tf.nn.sigmoid(h5), h5
+        return tf.nn.sigmoid(h6), h6
 
     def generator(self, z, reuse=False):
         with tf.variable_scope("generator") as scope:
@@ -193,34 +192,40 @@ class GAN(object):
             s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
             s_h8, s_w8 = conv_out_size_same(s_h4, 2), conv_out_size_same(s_w4, 2)
             s_h16, s_w16 = conv_out_size_same(s_h8, 2), conv_out_size_same(s_w8, 2)
+            s_h32, s_w32 = conv_out_size_same(s_h16, 2), conv_out_size_same(s_w16, 2)
             # project `z` and reshape
             self.z_, self.h0_w, self.h0_b = linear(
-                z, (s_h16*s_w16*self.gf_dim*8), 'g_h0_lin', with_w=True)
+                z, (s_h32*s_w32*self.gf_dim*16), 'g_h0_lin', with_w=True)
 
             self.h0 = tf.reshape(
-                self.z_, [-1, s_h16, s_w16, self.gf_dim * 8])
+                self.z_, [-1, s_h32, s_w32, self.gf_dim*16])
             h0 = tf.nn.relu(self.g_bn0(self.h0))
 
             self.h1, self.h1_w, self.h1_b = deconv2d(
-                h0, [self.batch_size, s_h8, s_w8, self.gf_dim*4],
+                h0, [self.batch_size, s_h16, s_w16, self.gf_dim*8],
                 name='g_h1', with_w=True)
             h1 = tf.nn.relu(self.g_bn1(self.h1))
 
             self.h2, self.h2_w, self.h2_b = deconv2d(
-                h1, [self.batch_size, s_h4, s_w4, self.gf_dim*2],
+                h1, [self.batch_size, s_h8, s_w8, self.gf_dim*4],
                 name='g_h2', with_w=True)
             h2 = tf.nn.relu(self.g_bn2(self.h2))
 
             self.h3, self.h3_w, self.h3_b = deconv2d(
-                h2, [self.batch_size, s_h2, s_w2, self.gf_dim*1],
+                h2, [self.batch_size, s_h4, s_w4, self.gf_dim*2],
                 name='g_h3', with_w=True)
             h3 = tf.nn.relu(self.g_bn3(self.h3))
 
             self.h4, self.h4_w, self.h4_b = deconv2d(
-                h3, [self.batch_size, s_h, s_w, self.c_dim],
+                h3, [self.batch_size, s_h2, s_w2, self.gf_dim*1],
                 name='g_h4', with_w=True)
+            h4 = tf.nn.relu(self.g_bn4(self.h4))
 
-            return tf.nn.tanh(self.h4)
+            self.h5, self.h5_w, self.h5_b = deconv2d(
+                h4, [self.batch_size, s_h, s_w, self.c_dim],
+                name='g_h5', with_w=True)
+
+            return tf.nn.tanh(self.h5)
 
     def sampler(self, z):
         with tf.variable_scope("generator") as scope:
