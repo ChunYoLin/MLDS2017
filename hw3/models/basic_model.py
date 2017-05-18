@@ -31,7 +31,7 @@ class GAN(object):
         #  network setting
         self.gf_dim = 64
         self.df_dim = 64
-        self.batch_size = 64
+        self.batch_size = 8
         self.orig_embed_size = 4800
         self.embed_size = 128
         #  batch_norm of discriminator
@@ -47,8 +47,12 @@ class GAN(object):
         self.g_bn3 = batch_norm(name="g_bn3")
         self.g_bn4 = batch_norm(name="g_bn4")
         #  input batch
+        self.match_sent = []
         with open("img_objs.pk", "r") as f:
             img_objs = pk.load(f)
+        for img in img_objs:
+            for sent in img.match_sent:
+                self.match_sent.append(sent)
         self.data_size = len(img_objs)
         self.batch_num = self.data_size / self.batch_size
         batch = data_reader.get_batch(img_objs, self.batch_size)
@@ -129,14 +133,17 @@ class GAN(object):
                 d_loss, _ = sess.run([self.d_loss, d_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
+                g_loss, _ = sess.run([self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
             if epoch % 100 == 0:
-                sample_imgs = sess.run(self.sample)
-                for idx, img in enumerate(sample_imgs):
-                    skimage.io.imsave("./sample/{}.jpg".format(idx), img)
-        #  fake_img, real_img, Sf, Sr = sess.run(
-            #  [self.fake_image, self.img_batch, self.Sf, self.Sr])
+                with open("./sample/match_sent/sample_sent.txt", "w") as f:
+                    for batch in range(self.batch_num):
+                        sample_imgs = sess.run(self.sample)
+                        for img_idx, img in enumerate(sample_imgs):
+                            idx = batch * self.batch_num + img_idx
+                            skimage.io.imsave("./sample/{}.jpg".format(idx), img)
+                            f.write("{}: {}\n".format(idx, self.match_sent[idx]))
 
     def sent_dim_reducer(self, sent, reuse=False):
         with tf.variable_scope("sent_dim_reducer") as scope:
