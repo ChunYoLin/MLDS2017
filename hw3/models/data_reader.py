@@ -33,8 +33,7 @@ def get_train_batch(img_objs, batch_size=64):
     match_embed = []
     mismatch_embed = []
     for obj in img_objs:
-        img.append(obj.img / 255.)
-        print img
+        img.append(obj.img)
         match_embed.append(obj.match_embed[0])
         mismatch_embed.append(obj.mismatch_embed[0])
     img = np.asarray(img)

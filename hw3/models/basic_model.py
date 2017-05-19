@@ -34,13 +34,9 @@ class GAN(object):
         if self.op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("img_objs_3200.pk", "r") as f:
+            with open("img_objs_64.pk", "r") as f:
                 img_objs = pk.load(f)
             self.match_sent = []
-            for img in img_objs:
-                for sent in img.match_sent:
-                    self.match_sent.append(sent)
-            img_objs = img_objs[:64*48]
             self.data_size = len(img_objs)
             print "number of image {}".format(self.data_size)
             self.batch_num = self.data_size / self.batch_size
@@ -55,8 +51,8 @@ class GAN(object):
             self.test_sent = tf.placeholder(
                 tf.float32, shape=[self.batch_size, self.orig_embed_size])
         #  network setting
-        self.gf_dim = 256
-        self.df_dim = 256
+        self.gf_dim = 64
+        self.df_dim = 64
         self.embed_size = 128
         #  batch_norm of discriminator
         self.d_bn0 = batch_norm(name="d_bn0")
@@ -158,13 +154,15 @@ class GAN(object):
                 #  print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
                 d_loss, _ = sess.run([self.d_loss, d_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
-                g_loss, _ = sess.run([self.g_loss, g_optim])
-                sample_imgs, g_loss, _ = sess.run([self.fake_image, self.g_loss, g_optim])
+                real_imgs, sample_imgs, g_loss, _ = sess.run(
+                    [self.img_batch, self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
             if (epoch+1) % 10 == 0:
                 for img_idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(img_idx), img)
+                    skimage.io.imsave(
+                        "./real/{}.jpg".format(img_idx), real_imgs[img_idx])
             if (epoch+1) % 100 == 0:
                 self.save("checkpoint", epoch)
 
