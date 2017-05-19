@@ -29,11 +29,11 @@ class GAN(object):
         self.output_height, self.output_width = img_h, img_w
         self.c_dim = img_c
         #  network setting
-        self.gf_dim = 64
-        self.df_dim = 64
-        self.batch_size = 8
+        self.gf_dim = 32
+        self.df_dim = 32
+        self.batch_size = 64
         self.orig_embed_size = 4800
-        self.embed_size = 128
+        self.embed_size = 256
         #  batch_norm of discriminator
         self.d_bn0 = batch_norm(name="d_bn0")
         self.d_bn1 = batch_norm(name="d_bn1")
@@ -52,12 +52,12 @@ class GAN(object):
         #  input batch
         self.match_sent = []
         print "loading training data......"
-        with open("img_objs_64.pk", "r") as f:
+        with open("img_objs.pk", "r") as f:
             img_objs = pk.load(f)
         for img in img_objs:
             for sent in img.match_sent:
                 self.match_sent.append(sent)
-        #  img_objs = img_objs[:12800]
+        img_objs = img_objs[:12800]
         self.data_size = len(img_objs)
         print "number of image {}".format(self.data_size)
         self.batch_num = self.data_size / self.batch_size
@@ -76,7 +76,7 @@ class GAN(object):
         #  Encode mis-matching text description
         self.h_ = self.sent_dim_reducer(self.mismatch_embed_batch, reuse=True)
         #  Draw sample of random noise
-        z_dims = 100
+        z_dims = 200
         dist = tf.contrib.distributions.Normal(loc=0., scale=1.)
         self.z = dist.sample([self.batch_size, z_dims])
         self.G_in = tf.concat([self.z, self.h], 1)
@@ -136,7 +136,7 @@ class GAN(object):
                 print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
                 d_loss, _, Sr, Sw, Sf = sess.run([self.d_loss, d_optim, self.Sr, self.Sw, self.Sf])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
-                g_loss, _ = sess.run([self.g_loss, g_optim])
+                #  g_loss, _ = sess.run([self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
                 print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
