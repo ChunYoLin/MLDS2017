@@ -33,7 +33,7 @@ class GAN(object):
         if self.op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("img_objs_64.pk", "r") as f:
+            with open("img_objs_3200.pk", "r") as f:
                 img_objs = pk.load(f)
             self.match_sent = []
             for img in img_objs:
@@ -92,8 +92,8 @@ class GAN(object):
         #  Forward through generator
         self.fake_image = self.generator(self.G_in)
         self.sample = self.sampler(self.G_in)
+        self.saver = tf.train.Saver()
         if self.op != "train": 
-            self.saver = tf.train.Saver()
             self.load("./checkpoint/")
             return
         #  real image, right text
@@ -317,8 +317,11 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-a = GAN(sess, 96, 96, 3, "test")
+train_model = GAN(sess, 96, 96, 3, "train")
+train_model.train()
+
+test_model = GAN(sess, 96, 96, 3, "test")
 for i in range(4):
-    img = a.test()
+    img = test_model.test()
     skimage.io.imsave("./test/{}.jpg".format(i+1), img)
 
