@@ -41,9 +41,9 @@ def get_train_batch(img_objs, batch_size=64):
     mismatch_embed = np.asarray(mismatch_embed)
 
     img_tensor = tf.convert_to_tensor(img, name='img_data', dtype=tf.float32)
-    img_data = tf.strided_slice(img_tensor, [i, 0, 0, 0], [(i+1), 96, 96, 3])
-    img_data = tf.reshape(img_data, [96, 96, 3])
-    img_data.set_shape([96, 96, 3])
+    img_data = tf.strided_slice(img_tensor, [i, 0, 0, 0], [(i+1), 64, 64, 3])
+    img_data = tf.reshape(img_data, [64, 64, 3])
+    img_data.set_shape([64, 64, 3])
 
     match_embed_tensor = tf.convert_to_tensor(
         match_embed, name='match_embed_data', dtype=tf.float32)
@@ -89,6 +89,7 @@ def build_imgs():
             tag_row = [row[0].split(',')[1]] + row[1:]
             img = skimage.io.imread(
                 '/home/newslab/MLDS2017/hw3/data/faces/{}.jpg'.format(int(img_id)))
+            img = skimage.transform.resize(img, (64, 64))
             match_sent = []
             mismatch_sent = []
             tag_hair = []
@@ -133,3 +134,4 @@ def build_test_sent():
         model = skipthoughts.load_model()
         vecs = skipthoughts.encode(model, test_sent)
         return vecs
+
