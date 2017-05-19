@@ -32,9 +32,9 @@ class GAN(object):
         #  input batch
         self.op = op
         if self.op == "train":
-            self.batch_size = 8
+            self.batch_size = 64
             print "loading training data......"
-            with open("img_objs_64.pk", "r") as f:
+            with open("img_objs_3200.pk", "r") as f:
                 img_objs = pk.load(f)
             self.match_sent = []
             for img in img_objs:
@@ -156,8 +156,7 @@ class GAN(object):
                 #  g_loss, _, Sr, Sw, Sf = sess.run([self.g_loss, g_optim, self.Sr, self.Sw, self.Sf])
                 #  g_loss, _, Sr, Sw, Sf = sess.run([self.g_loss, g_optim, self.Sr, self.Sw, self.Sf])
                 #  print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
-                for i in range(5):
-                    d_loss, _ = sess.run([self.d_loss, d_optim])
+                d_loss, _ = sess.run([self.d_loss, d_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 sample_imgs, g_loss, _ = sess.run([self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
@@ -220,7 +219,7 @@ class GAN(object):
             h5 = linear(tf.reshape(h4, [self.batch_size, -1]), 1, 'd_h4_lin')
             print h5.shape
 
-        return tf.nn.sigmoid(h4), h4
+        return tf.nn.sigmoid(h5), h5
 
     def generator(self, z, reuse=False):
         print "Generator"
