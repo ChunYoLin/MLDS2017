@@ -28,6 +28,7 @@ class GAN(object):
         self.sess = sess
         self.output_height, self.output_width = img_h, img_w
         self.c_dim = img_c
+        self.orig_embed_size = 4800
         #  input batch
         self.op = op
         if self.op == "train":
@@ -51,14 +52,11 @@ class GAN(object):
         elif self.op == "test":
             self.batch_size = 1
             print "loading testing data"
-            test_sent = data_reader.build_test_sent()
-            batch = data_reader.get_test_batch(test_sent, self.batch_size)
-            self.match_embed_batch = batch
-            self.mismatch_embed_batch = batch
+            self.test_sent = tf.placeholder(
+                tf.float32, shape=[self.batch_size, self.orig_embed_size])
         #  network setting
-        self.gf_dim = 64
-        self.df_dim = 64
-        self.orig_embed_size = 4800
+        self.gf_dim = 32
+        self.df_dim = 32
         self.embed_size = 256
         #  batch_norm of discriminator
         self.d_bn0 = batch_norm(name="d_bn0")
@@ -80,22 +78,24 @@ class GAN(object):
         self.build_model()
 
     def build_model(self):
-        #  Encode matching text description
-        self.h = self.sent_dim_reducer(self.match_embed_batch)
-        #  Encode mis-matching text description
-        self.h_ = self.sent_dim_reducer(self.mismatch_embed_batch, reuse=True)
         #  Draw sample of random noise
         z_dims = 200
         dist = tf.contrib.distributions.Normal(loc=0., scale=1.)
         self.z = dist.sample([self.batch_size, z_dims])
-        self.G_in = tf.concat([self.z, self.h], 1)
-        #  Forward through generator
-        self.fake_image = self.generator(self.G_in)
-        self.sample = self.sampler(self.G_in)
-        self.saver = tf.train.Saver()
         if self.op != "train": 
+            self.test_embed = self.sent_dim_reducer(self.test_sent)
+            self.sample_in = tf.concat([self.z, self.test_embed], 1)
+            self.sample = self.sampler(self.sample_in)
+            self.saver = tf.train.Saver()
             self.load("./checkpoint/")
             return
+        #  Encode matching text description
+        self.h = self.sent_dim_reducer(self.match_embed_batch)
+        #  Encode mis-matching text description
+        self.h_ = self.sent_dim_reducer(self.mismatch_embed_batch, reuse=True)
+        #  Forward through generator
+        self.G_in = tf.concat([self.z, self.h], 1)
+        self.fake_image = self.generator(self.G_in)
         #  real image, right text
         self.Sr, self.Sr_logits = self.discriminator(
             self.h, self.img_batch, reuse=False)
@@ -124,46 +124,58 @@ class GAN(object):
         self.g_loss = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.ones_like(Sf), logits=Sf_logits))
+        self.g_loss = tf.reduce_mean(tf.square(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.ones_like(Sf), logits=Sf_logits) -
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(Sf), logits=Sf_logits))
+            )
+        #  self.d_loss = -tf.reduce_mean(
+            #  tf.log(Sr) + (tf.log(1.-tf.log(Sf)) + tf.log(1.-tf.log(Sw))) / 2.)
+        #  self.g_loss = -tf.reduce_mean(tf.log(Sf))
         #  seperate the variables of discriminator and generator by name
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
         self.g_vars = [var for var in t_vars if 'g_' in var.name]
+        self.saver = tf.train.Saver()
 
     def train(self):
         #  training op
-        learning_rate = 0.0002
-        d_optim = tf.train.AdamOptimizer(learning_rate).minimize(
+        learning_rate_d = 0.0002
+        learning_rate_g = 0.0002
+        d_optim = tf.train.AdamOptimizer(learning_rate_d).minimize(
             self.d_loss, var_list=self.d_vars)
-        g_optim = tf.train.AdamOptimizer(learning_rate).minimize(
+        g_optim = tf.train.AdamOptimizer(learning_rate_g).minimize(
             self.g_loss, var_list=self.g_vars)
         #  session
         sess = self.sess
         #  initial all variable
         sess.run(tf.global_variables_initializer())
         tf.train.start_queue_runners(sess)
-        for epoch in range(1000):
+        for epoch in range(1):
             for batch in range(self.batch_num):
+                print "--------------------------------"
                 print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
-                d_loss, _, Sr, Sw, Sf = sess.run([self.d_loss, d_optim, self.Sr, self.Sw, self.Sf])
+                #  d_loss, _, Sr, Sw, Sf = sess.run([self.d_loss, d_optim, self.Sr, self.Sw, self.Sf])
+                #  g_loss, _, Sr, Sw, Sf = sess.run([self.g_loss, g_optim, self.Sr, self.Sw, self.Sf])
+                #  g_loss, _, Sr, Sw, Sf = sess.run([self.g_loss, g_optim, self.Sr, self.Sw, self.Sf])
+                #  print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
+                d_loss, _ = sess.run([self.d_loss, d_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
-                #  g_loss, _ = sess.run([self.g_loss, g_optim])
+                sample_imgs, g_loss, _ = sess.run([self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
-                print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
             if (epoch+1) % 10 == 0:
+                for img_idx, img in enumerate(sample_imgs):
+                    skimage.io.imsave("./sample/{}.jpg".format(img_idx), img)
+            if (epoch) % 100 == 0:
                 self.save("checkpoint", epoch)
-                with open("./sample/match_sent/sample_sent.txt", "w") as f:
-                    for batch in range(self.batch_num):
-                        sample_imgs = sess.run(self.sample)
-                        for img_idx, img in enumerate(sample_imgs):
-                            idx = batch * self.batch_size + img_idx
-                            skimage.io.imsave("./sample/{}.jpg".format(idx), img)
-                            f.write("{}: {}\n".format(idx, self.match_sent[idx]))
 
     def test(self):
         sess = self.sess
-        tf.train.start_queue_runners(sess)
-        sample_img = sess.run(self.sample)
+        test_sent = data_reader.build_test_sent()
+        sample_img = sess.run(
+            self.sample, feed_dict={self.test_sent: test_sent})
         return sample_img
 
     def sent_dim_reducer(self, sent, reuse=False):
@@ -254,7 +266,7 @@ class GAN(object):
 
     def sampler(self, z):
         with tf.variable_scope("generator") as scope:
-            scope.reuse_variables()
+            #  scope.reuse_variables()
             s_h, s_w = self.output_height, self.output_width
             s_h2, s_w2 = conv_out_size_same(s_h, 2), conv_out_size_same(s_w, 2)
             s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
@@ -317,8 +329,8 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-train_model = GAN(sess, 96, 96, 3, "train")
-train_model.train()
+#  train_model = GAN(sess, 96, 96, 3, "train")
+#  train_model.train()
 
 test_model = GAN(sess, 96, 96, 3, "test")
 for i in range(4):
