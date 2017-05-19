@@ -55,8 +55,8 @@ class GAN(object):
             self.test_sent = tf.placeholder(
                 tf.float32, shape=[self.batch_size, self.orig_embed_size])
         #  network setting
-        self.gf_dim = 64
-        self.df_dim = 64
+        self.gf_dim = 256
+        self.df_dim = 256
         self.embed_size = 128
         #  batch_norm of discriminator
         self.d_bn0 = batch_norm(name="d_bn0")
@@ -157,6 +157,7 @@ class GAN(object):
                 #  g_loss, _, Sr, Sw, Sf = sess.run([self.g_loss, g_optim, self.Sr, self.Sw, self.Sf])
                 #  print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
                 d_loss, _ = sess.run([self.d_loss, d_optim])
+                g_loss, _ = sess.run([self.g_loss, g_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 sample_imgs, g_loss, _ = sess.run([self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
