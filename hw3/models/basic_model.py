@@ -39,7 +39,7 @@ class GAN(object):
             for img in img_objs:
                 for sent in img.match_sent:
                     self.match_sent.append(sent)
-            #  img_objs = img_objs[:12800]
+            img_objs = img_objs[:64*48]
             self.data_size = len(img_objs)
             print "number of image {}".format(self.data_size)
             self.batch_num = self.data_size / self.batch_size
@@ -58,7 +58,6 @@ class GAN(object):
         #  network setting
         self.gf_dim = 32
         self.df_dim = 32
-        self.batch_size = 64
         self.orig_embed_size = 4800
         self.embed_size = 256
         #  batch_norm of discriminator
@@ -143,11 +142,11 @@ class GAN(object):
         sess.run(tf.global_variables_initializer())
         tf.train.start_queue_runners(sess)
         for epoch in range(1000):
-            for batch in range(self.batch_num):
-                print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
+            for batch in range(self.batch_num/3):
+                print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num/3)
                 d_loss, _, Sr, Sw, Sf = sess.run([self.d_loss, d_optim, self.Sr, self.Sw, self.Sf])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
-                #  g_loss, _ = sess.run([self.g_loss, g_optim])
+                g_loss, _ = sess.run([self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
                 print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
@@ -164,8 +163,8 @@ class GAN(object):
     def test(self):
         sess = self.sess
         tf.train.start_queue_runners(sess)
-        sample_img = sess.run(self.sample)
-        return sample_img
+        sample_img, G_in = sess.run([self.sample, self.G_in])
+        return sample_img, G_in
 
     def sent_dim_reducer(self, sent, reuse=False):
         with tf.variable_scope("sent_dim_reducer") as scope:
@@ -318,11 +317,11 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-train_model = GAN(sess, 96, 96, 3, "train")
-train_model.train()
+#  train_model = GAN(sess, 96, 96, 3, "train")
+#  train_model.train()
 
 test_model = GAN(sess, 96, 96, 3, "test")
-for i in range(4):
-    img = test_model.test()
+for i in range(6):
+    img, G_in = test_model.test()
     skimage.io.imsave("./test/{}.jpg".format(i+1), img)
 
