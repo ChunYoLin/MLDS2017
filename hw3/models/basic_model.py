@@ -23,11 +23,38 @@ def conv_out_size_same(size, stride):
 
 
 class GAN(object):
-    def __init__(self, sess, img_h, img_w, img_c):
+    def __init__(self, sess, img_h, img_w, img_c, op):
         #  input
         self.sess = sess
         self.output_height, self.output_width = img_h, img_w
         self.c_dim = img_c
+        #  input batch
+        self.op = op
+        if self.op == "train":
+            self.batch_size = 64
+            print "loading training data......"
+            with open("img_objs_64.pk", "r") as f:
+                img_objs = pk.load(f)
+            self.match_sent = []
+            for img in img_objs:
+                for sent in img.match_sent:
+                    self.match_sent.append(sent)
+            #  img_objs = img_objs[:12800]
+            self.data_size = len(img_objs)
+            print "number of image {}".format(self.data_size)
+            self.batch_num = self.data_size / self.batch_size
+            print "number of batch {}".format(self.batch_num)
+            batch = data_reader.get_train_batch(img_objs, self.batch_size)
+            self.img_batch = batch[0]
+            self.match_embed_batch = batch[1]
+            self.mismatch_embed_batch = batch[2]
+        elif self.op == "test":
+            self.batch_size = 1
+            print "loading testing data"
+            test_sent = data_reader.build_test_sent()
+            batch = data_reader.get_test_batch(test_sent, self.batch_size)
+            self.match_embed_batch = batch
+            self.mismatch_embed_batch = batch
         #  network setting
         self.gf_dim = 32
         self.df_dim = 32
@@ -49,23 +76,6 @@ class GAN(object):
         self.g_bn3 = batch_norm(name="g_bn3")
         self.g_bn4 = batch_norm(name="g_bn4")
         self.g_bn5 = batch_norm(name="g_bn5")
-        #  input batch
-        self.match_sent = []
-        print "loading training data......"
-        with open("img_objs.pk", "r") as f:
-            img_objs = pk.load(f)
-        for img in img_objs:
-            for sent in img.match_sent:
-                self.match_sent.append(sent)
-        img_objs = img_objs[:12800]
-        self.data_size = len(img_objs)
-        print "number of image {}".format(self.data_size)
-        self.batch_num = self.data_size / self.batch_size
-        print "number of batch {}".format(self.batch_num)
-        batch = data_reader.get_batch(img_objs, self.batch_size)
-        self.img_batch = batch[0]
-        self.match_embed_batch = batch[1]
-        self.mismatch_embed_batch = batch[2]
         #  build model
         print "building model......"
         self.build_model()
@@ -83,6 +93,10 @@ class GAN(object):
         #  Forward through generator
         self.fake_image = self.generator(self.G_in)
         self.sample = self.sampler(self.G_in)
+        if self.op != "train": 
+            self.saver = tf.train.Saver()
+            self.load("./checkpoint/")
+            return
         #  real image, right text
         self.Sr, self.Sr_logits = self.discriminator(
             self.h, self.img_batch, reuse=False)
@@ -111,9 +125,6 @@ class GAN(object):
         self.g_loss = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.ones_like(Sf), logits=Sf_logits))
-
-        #  self.d_loss = -1 * tf.reduce_mean(tf.log(Sr) + (tf.log(1-Sw) + tf.log(1-Sf) / 2.))
-        #  self.g_loss = -1 * tf.reduce_mean(tf.log(Sf))
         #  seperate the variables of discriminator and generator by name
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
@@ -141,6 +152,7 @@ class GAN(object):
                 print "g_loss {}".format(g_loss)
                 print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
             if (epoch+1) % 10 == 0:
+                self.save("checkpoint", epoch)
                 with open("./sample/match_sent/sample_sent.txt", "w") as f:
                     for batch in range(self.batch_num):
                         sample_imgs = sess.run(self.sample)
@@ -148,6 +160,12 @@ class GAN(object):
                             idx = batch * self.batch_size + img_idx
                             skimage.io.imsave("./sample/{}.jpg".format(idx), img)
                             f.write("{}: {}\n".format(idx, self.match_sent[idx]))
+
+    def test(self):
+        sess = self.sess
+        tf.train.start_queue_runners(sess)
+        sample_img = sess.run(self.sample)
+        return sample_img
 
     def sent_dim_reducer(self, sent, reuse=False):
         with tf.variable_scope("sent_dim_reducer") as scope:
@@ -278,6 +296,30 @@ class GAN(object):
 
             return tf.nn.tanh(self.h6)
 
+    def save(self, checkpoint_dir, step):
+        model_name = "basic.model"
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+        self.saver.save(
+            self.sess, os.path.join(checkpoint_dir, model_name),
+            global_step=step)
+
+    def load(self, checkpoint_dir):
+        print(" [*] Reading checkpoints...")
+        ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+            self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
+            counter = int(next(re.finditer("(\d+)(?!.*\d)",ckpt_name)).group(0))
+            print(" [*] Success to read {}".format(ckpt_name))
+            return True, counter
+        else:
+            print(" [*] Failed to find a checkpoint")
+            return False, 0
+
 sess = tf.Session()
-a = GAN(sess, 96, 96, 3)
-a.train()
+a = GAN(sess, 96, 96, 3, "test")
+for i in range(4):
+    img = a.test()
+    skimage.io.imsave("./test/{}.jpg".format(i+1), img)
+

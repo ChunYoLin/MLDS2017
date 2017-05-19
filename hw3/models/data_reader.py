@@ -25,7 +25,7 @@ class realimg(object):
             self.mismatch_embed = skipthoughts.encode(model, mismatch_sent)
 
 
-def get_batch(img_objs, batch_size=64):
+def get_train_batch(img_objs, batch_size=64):
     data_size = len(img_objs)
     i = tf.train.range_input_producer(data_size, shuffle=False).dequeue()
 
@@ -61,11 +61,28 @@ def get_batch(img_objs, batch_size=64):
         [img_data, match_embed_data, mismatch_embed_data], batch_size=batch_size)
 
     return img_batch, match_embed_batch, mismatch_embed_batch
+
+def get_test_batch(sent, batch_size=1):
+    data_size = len(sent)
+    i = tf.train.range_input_producer(data_size, shuffle=False).dequeue()
+
+    test_embed_tensor = tf.convert_to_tensor(
+        sent, name='test_embed_data', dtype=tf.float32)
+    test_embed_data = tf.strided_slice(test_embed_tensor, [i, 0], [(i+1), 4800])
+    test_embed_data = tf.reshape(test_embed_data, [4800])
+    test_embed_data.set_shape([4800])
+
+    test_embed_batch = tf.train.batch([test_embed_data], batch_size=batch_size)
+    
+    return test_embed_batch
     
 def build_imgs():
     with open('/home/newslab/MLDS2017/hw3/data/tags_clean.csv', 'r') as tag_file:
         tag_reader = csv.reader(tag_file, delimiter='\t')
         img_objs = []
+        colors = [
+            "red", "orange", "yellow", "green", "blue", "purple", "blonde",
+            "pink", "black", "white", "brown"]
         num = 0
         for row in tag_reader:
             img_id = row[0].split(',')[0]
@@ -74,21 +91,23 @@ def build_imgs():
                 '/home/newslab/MLDS2017/hw3/data/faces/{}.jpg'.format(int(img_id)))
             match_sent = []
             mismatch_sent = []
-            tag_eyes = []
             tag_hair = []
+            tag_eyes = []
             for tag in tag_row:
                 tag = tag.split(':')[0]
-                if 'eyes' in tag:
-                    tag_eyes.append(tag)
-                if 'hair' in tag:
-                    tag_hair.append(tag)
+                for color in colors:
+                    if "{} hair".format(color) in tag:
+                        tag_hair.append(tag)
+                    if "{} eyes".format(color) in tag:
+                        tag_eyes.append(tag)
             for t_h in tag_hair:
                 for t_e in tag_eyes:
                     match_sent.append('{} {}'.format(t_h, t_e))
             if match_sent:
+                print match_sent
                 img_objs.append(realimg(img, match_sent))
                 num += 1
-                if num >= 64: break
+                if num >= 3200: break
         model = skipthoughts.load_model()
         k = 0
         for img_obj1 in img_objs:
@@ -103,5 +122,14 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    with open("img_objs_64.pk", "w") as f:
+    with open("img_objs_3200.pk", "w") as f:
         pk.dump(img_objs, f)
+
+def build_test_sent():
+    with open("../data/sample_testing_text.txt", "r") as f:
+        test_sent = []
+        for row in f.read().splitlines():
+            test_sent.append(row.split(",")[1])
+        model = skipthoughts.load_model()
+        vecs = skipthoughts.encode(model, test_sent)
+        return vecs
