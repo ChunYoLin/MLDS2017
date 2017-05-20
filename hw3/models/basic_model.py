@@ -153,7 +153,7 @@ class GAN(object):
                 #  g_loss, _, Sr, Sw, Sf = sess.run([self.g_loss, g_optim, self.Sr, self.Sw, self.Sf])
                 #  print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
                 d_loss, _ = sess.run([self.d_loss, d_optim])
-                g_loss, _ = sess.run([self.g_loss, g_optim])
+                #  g_loss, _ = sess.run([self.g_loss, g_optim])
                 real_imgs, sample_imgs, g_loss, _ = sess.run(
                     [self.img_batch, self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
