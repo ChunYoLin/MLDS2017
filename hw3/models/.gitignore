@@ -1,9 +1,6 @@
 *pk
 sample/
-<<<<<<< HEAD
-real/
-=======
 test/
 real/
 checkpoint/
->>>>>>> 205e2f475cf75ff71adf22a6cac6ee20b480dd0f
+train_data/

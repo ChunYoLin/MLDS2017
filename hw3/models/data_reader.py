@@ -136,4 +136,3 @@ def build_test_sent():
         vecs = skipthoughts.encode(model, test_sent)
         return vecs
 
-#  build_imgs()
