@@ -37,6 +37,7 @@ def get_train_batch(img_objs, batch_size=64):
         match_embed.append(obj.match_embed[0])
         mismatch_embed.append(obj.mismatch_embed[0])
     img = np.asarray(img)
+    print img.shape
     match_embed = np.asarray(match_embed)
     mismatch_embed = np.asarray(mismatch_embed)
 
@@ -105,10 +106,10 @@ def build_imgs():
                 for t_e in tag_eyes:
                     match_sent.append('{} {}'.format(t_h, t_e))
             if match_sent:
-                print match_sent
+                #  print match_sent
                 img_objs.append(realimg(img, match_sent))
                 num += 1
-                if num >= 3200: break
+                #  if num >= 1: break
         model = skipthoughts.load_model()
         k = 0
         for img_obj1 in img_objs:
@@ -123,7 +124,7 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    with open("img_objs_3200.pk", "w") as f:
+    with open("img_objs.pk", "w") as f:
         pk.dump(img_objs, f)
 
 def build_test_sent():
@@ -135,4 +136,4 @@ def build_test_sent():
         vecs = skipthoughts.encode(model, test_sent)
         return vecs
 
-build_imgs()
+#  build_imgs()
