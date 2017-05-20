@@ -36,7 +36,6 @@ class GAN(object):
             print "loading training data......"
             with open("img_objs_64.pk", "r") as f:
                 img_objs = pk.load(f)
-            #  img_objs = img_objs[:12800]
             self.data_size = len(img_objs)
             skimage.io.imsave("123.jpg", img_objs[0].img)
             print "number of image {}".format(self.data_size)
@@ -158,7 +157,7 @@ class GAN(object):
                 d_loss, _ = sess.run([self.d_loss, d_optim])
                 g_loss, _ = sess.run([self.g_loss, g_optim])
                 real_imgs, sample_imgs, g_loss, _ = sess.run(
-                        [self.img_batch, self.fake_image, self.g_loss, g_optim])
+                    [self.img_batch, self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
             if (epoch+1) % 10 == 0:
