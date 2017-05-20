@@ -37,6 +37,7 @@ def get_train_batch(img_objs, batch_size=64):
         match_embed.append(obj.match_embed[0])
         mismatch_embed.append(obj.mismatch_embed[0])
     img = np.asarray(img)
+    print img.shape
     match_embed = np.asarray(match_embed)
     mismatch_embed = np.asarray(mismatch_embed)
 
@@ -77,7 +78,7 @@ def get_test_batch(sent, batch_size=1):
     return test_embed_batch
     
 def build_imgs():
-    with open('/home/newslab/MLDS2017/hw3/data/tags_clean.csv', 'r') as tag_file:
+    with open('/home/chunyo/MLDS2017/hw3/data/tags_clean.csv', 'r') as tag_file:
         tag_reader = csv.reader(tag_file, delimiter='\t')
         img_objs = []
         colors = [
@@ -88,7 +89,7 @@ def build_imgs():
             img_id = row[0].split(',')[0]
             tag_row = [row[0].split(',')[1]] + row[1:]
             img = skimage.io.imread(
-                '/home/newslab/MLDS2017/hw3/data/faces/{}.jpg'.format(int(img_id)))
+                '/home/chunyo/MLDS2017/hw3/data/faces/{}.jpg'.format(int(img_id)))
             img = skimage.transform.resize(img, (64, 64))
             match_sent = []
             mismatch_sent = []
@@ -105,10 +106,10 @@ def build_imgs():
                 for t_e in tag_eyes:
                     match_sent.append('{} {}'.format(t_h, t_e))
             if match_sent:
-                print match_sent
+                #  print match_sent
                 img_objs.append(realimg(img, match_sent))
                 num += 1
-                if num >= 3200: break
+                #  if num >= 1: break
         model = skipthoughts.load_model()
         k = 0
         for img_obj1 in img_objs:
@@ -123,7 +124,7 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    with open("img_objs_3200.pk", "w") as f:
+    with open("img_objs.pk", "w") as f:
         pk.dump(img_objs, f)
 
 def build_test_sent():

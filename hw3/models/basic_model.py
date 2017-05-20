@@ -34,9 +34,8 @@ class GAN(object):
         if self.op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("img_objs_64.pk", "r") as f:
+            with open("img_objs_3200.pk", "r") as f:
                 img_objs = pk.load(f)
-            self.match_sent = []
             self.data_size = len(img_objs)
             print "number of image {}".format(self.data_size)
             self.batch_num = self.data_size / self.batch_size
@@ -158,24 +157,26 @@ class GAN(object):
                     [self.img_batch, self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
-            if (epoch+1) % 10 == 0:
+            if (epoch+1) % 100 == 0:
+                self.save("checkpoint", epoch)
                 for img_idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(img_idx), img)
                     skimage.io.imsave(
                         "./real/{}.jpg".format(img_idx), real_imgs[img_idx])
-            if (epoch+1) % 100 == 0:
-                self.save("checkpoint", epoch)
 
     def test(self):
         sess = self.sess
         test_sent = data_reader.build_test_sent()
-        sample_imgs = []
+        sample_images = []
         for sent in test_sent:
             sent = np.reshape(sent, (1, -1))
-            sample_img = sess.run(
-                self.sample, feed_dict={self.test_sent: sent})
-            sample_imgs.append(sample_img)
-        return sample_imgs
+            sample_image = []
+            for i in range(10):
+                sample_img = sess.run(
+                    self.sample, feed_dict={self.test_sent: sent})
+                sample_image.append(sample_img)
+            sample_images.append(sample_image)
+        return sample_images
 
     def sent_dim_reducer(self, sent, reuse=False):
         with tf.variable_scope("sent_dim_reducer") as scope:
@@ -257,7 +258,6 @@ class GAN(object):
                 h3, [self.batch_size, s_h, s_w, self.c_dim],
                 name='g_h4', with_w=True)
             print self.h4.shape
-
             return tf.nn.tanh(self.h4)
 
     def sampler(self, z):
@@ -285,7 +285,7 @@ class GAN(object):
             h2 = tf.nn.relu(self.g_bn2(self.h2, train=False))
 
             self.h3 = deconv2d(
-                h2, [self.batch_size, s_h, s_w, self.gf_dim*1], name='g_h3')
+                h2, [self.batch_size, s_h2, s_w2, self.gf_dim*1], name='g_h3')
             h3 = tf.nn.relu(self.g_bn3(self.h3, train=False))
 
             self.h4 = deconv2d(
@@ -315,11 +315,12 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-train_model = GAN(sess, 64, 64, 3, "train")
-train_model.train()
+#  train_model = GAN(sess, 64, 64, 3, "train")
+#  train_model.train()
 
 test_model = GAN(sess, 64, 64, 3, "test")
 imgs = test_model.test()
 for idx, img in enumerate(imgs):
-    skimage.io.imsave("./test/{}.jpg".format(idx+1), img)
+    for i in range(10):
+        skimage.io.imsave("./test/{}_{}.jpg".format(idx+1, i), img[i])
 
