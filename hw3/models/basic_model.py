@@ -81,11 +81,12 @@ class GAN(object):
             self.load("./z_100/")
             return
         #  Encode matching text description
-        self.h = self.sent_dim_reducer(self.match_embed_batch)
+        self.g_h = self.sent_dim_reducer(self.match_embed_batch, name='g_sent_reduce')
         #  Encode mis-matching text description
-        self.h_ = self.sent_dim_reducer(self.mismatch_embed_batch, reuse=True)
+        self.d_h = self.sent_dim_reducer(self.match_embed_batch, name='d_sent_reduce')
+        self.d_h_ = self.sent_dim_reducer(self.mismatch_embed_batch, name='d_sent_reduce', reuse=True)
         #  Forward through generator
-        self.G_in = tf.concat([self.z, self.h], 1)
+        self.G_in = tf.concat([self.z, self.g_h], 1)
         self.fake_image = self.generator(self.G_in)
         self.img_batch_flip = []
         for i in range(self.img_batch.shape[0]):
@@ -94,28 +95,28 @@ class GAN(object):
         self.img_batch_flip = tf.convert_to_tensor(self.img_batch_flip)
         #  real image, right text
         self.Sr, self.Sr_logits = self.discriminator(
-            self.h, self.img_batch_flip, reuse=False)
+            self.d_h, self.img_batch_flip, reuse=False)
         Sr, Sr_logits = self.Sr, self.Sr_logits
         self.d_loss_real = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.ones_like(Sr), logits=Sr_logits))
         #  fake image, right text
         self.Sf, self.Sf_logits = self.discriminator(
-            self.h, self.fake_image, reuse=True)
+            self.d_h, self.fake_image, reuse=True)
         Sf, Sf_logits = self.Sf, self.Sf_logits
         self.d_loss_Sf = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.zeros_like(Sf), logits=Sf_logits))
         #  real image, wrong text
         self.Sw, self.Sw_logits = self.discriminator(
-            self.h_, self.img_batch_flip, reuse=True)
+            self.d_h_, self.img_batch_flip, reuse=True)
         Sw, Sw_logits = self.Sw, self.Sw_logits
         self.d_loss_Sw = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.zeros_like(Sw), logits=Sw_logits))
         #  wrong image, right text
         self.Swi, self.Swi_logits = self.discriminator(
-            self.h, self.wimg_batch, reuse=True)
+            self.d_h, self.wimg_batch, reuse=True)
         Swi, Swi_logits = self.Swi, self.Swi_logits
         self.d_loss_Swi = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
@@ -157,11 +158,11 @@ class GAN(object):
         sess.run(tf.global_variables_initializer())
         #  self.load('./z_100/')
         tf.train.start_queue_runners(sess)
-        for epoch in range(1000):
+        for epoch in range(10000):
             for batch in range(self.batch_num):
                 batch_z = np.random.uniform(
                     -1, 1, [self.batch_size, self.z_dim]).astype(np.float32)
-                batch_z*=100
+                batch_z *= 100
                 print "--------------------------------"
                 print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
                 d_loss, _ = sess.run([self.d_loss, d_optim],
@@ -190,25 +191,24 @@ class GAN(object):
             for i in range(10):
                 batch_z = np.random.uniform(
                     0, 1, [self.batch_size, self.z_dim]).astype(np.float32)
-                batch_z*=100
+                batch_z *= 100
                 sample_in, sample_img = sess.run(
                     [self.sample_in, self.sample], feed_dict={
                         self.test_sent: sent, self.z: batch_z})
                 skimage.io.imsave("../data/test/{}_{}.jpg".format(idx+1, i), sample_img)
-                print sample_in
 
-    def sent_dim_reducer(self, sent, reuse=False):
+    def sent_dim_reducer(self, sent, name, reuse=False):
         with tf.variable_scope("sent_dim_reducer") as scope:
             if reuse:
                 scope.reuse_variables()
             w = tf.get_variable(
-                "g_sent_reduce_w", [self.orig_embed_size, self.embed_size],
+                "{}_w".format(name), [self.orig_embed_size, self.embed_size],
                 tf.float32, tf.random_normal_initializer(stddev=0.01))
             b = tf.get_variable(
-                "g_sent_reduce_b", [self.embed_size],
+                "{}_b".format(name), [self.embed_size],
                 tf.float32, initializer=tf.constant_initializer(0.0))
             embed = tf.matmul(sent, w) + b
-            return tf.nn.relu(embed)
+            return embed
 
     def discriminator(self, sent, image, reuse=False):
         with tf.variable_scope("discriminator") as scope:

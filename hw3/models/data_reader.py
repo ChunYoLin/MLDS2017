@@ -111,7 +111,7 @@ def build_imgs():
                 #  print match_sent
                 img_objs.append(realimg(img, match_sent))
                 num += 1
-                if num >= 64: break
+                #  if num >= 64: break
         model = skipthoughts.load_model()
         k = 0
         for idx, img_obj1 in enumerate(img_objs):
@@ -127,7 +127,8 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    with open("/train_data/img_objs_64.pk", "w") as f:
+    with open("/train_data/img_objs.pk", "w") as f:
         pk.dump(img_objs, f)
+#  build_imgs()
 
 
