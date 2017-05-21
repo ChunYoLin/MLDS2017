@@ -34,7 +34,7 @@ class GAN(object):
         if self.op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("./train_data/img_objs.pk", "r") as f:
+            with open("./train_data/img_objs_64.pk", "r") as f:
                 img_objs = pk.load(f)
             self.data_size = len(img_objs)
             print "number of image {}".format(self.data_size)
@@ -42,8 +42,9 @@ class GAN(object):
             print "number of batch {}".format(self.batch_num)
             batch = data_reader.get_train_batch(img_objs, self.batch_size)
             self.img_batch = batch[0]
-            self.match_embed_batch = batch[1]
-            self.mismatch_embed_batch = batch[2]
+            self.wimg_batch = batch[1]
+            self.match_embed_batch = batch[2]
+            self.mismatch_embed_batch = batch[3]
         elif self.op == "test":
             self.batch_size = 1
             print "loading testing data"
@@ -71,16 +72,13 @@ class GAN(object):
 
     def build_model(self):
         #  Draw sample of random noise
-        #  z_dims = 100
-        #  dist = tf.contrib.distributions.Normal(loc=0., scale=1.)
-        #  self.z = dist.sample([self.batch_size, z_dims])
         self.z = tf.placeholder(tf.float32, [None, self.z_dim], name='z')
         if self.op != "train": 
             self.test_embed = self.sent_dim_reducer(self.test_sent)
             self.sample_in = tf.concat([self.z, self.test_embed], 1)
             self.sample = self.sampler(self.sample_in)
             self.saver = tf.train.Saver()
-            self.load("./checkpoint/")
+            self.load("./z_100/")
             return
         #  Encode matching text description
         self.h = self.sent_dim_reducer(self.match_embed_batch)
@@ -89,20 +87,18 @@ class GAN(object):
         #  Forward through generator
         self.G_in = tf.concat([self.z, self.h], 1)
         self.fake_image = self.generator(self.G_in)
+        self.img_batch_flip = []
+        for i in range(self.img_batch.shape[0]):
+            self.img_batch_flip.append(
+                tf.image.random_flip_left_right(self.img_batch[i]))
+        self.img_batch_flip = tf.convert_to_tensor(self.img_batch_flip)
         #  real image, right text
         self.Sr, self.Sr_logits = self.discriminator(
-            self.h, self.img_batch, reuse=False)
+            self.h, self.img_batch_flip, reuse=False)
         Sr, Sr_logits = self.Sr, self.Sr_logits
         self.d_loss_real = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.ones_like(Sr), logits=Sr_logits))
-        #  real image, wrong text
-        self.Sw, self.Sw_logits = self.discriminator(
-            self.h_, self.img_batch, reuse=True)
-        Sw, Sw_logits = self.Sw, self.Sw_logits
-        self.d_loss_Sw = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.zeros_like(Sw), logits=Sw_logits))
         #  fake image, right text
         self.Sf, self.Sf_logits = self.discriminator(
             self.h, self.fake_image, reuse=True)
@@ -110,9 +106,27 @@ class GAN(object):
         self.d_loss_Sf = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.zeros_like(Sf), logits=Sf_logits))
+        #  real image, wrong text
+        self.Sw, self.Sw_logits = self.discriminator(
+            self.h_, self.img_batch_flip, reuse=True)
+        Sw, Sw_logits = self.Sw, self.Sw_logits
+        self.d_loss_Sw = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(Sw), logits=Sw_logits))
+        #  wrong image, right text
+        self.Swi, self.Swi_logits = self.discriminator(
+            self.h, self.wimg_batch, reuse=True)
+        Swi, Swi_logits = self.Swi, self.Swi_logits
+        self.d_loss_Swi = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(Swi), logits=Swi_logits))
         #  loss of discriminator
-        self.d_loss_fake = (self.d_loss_Sw + self.d_loss_Sf) / 2.
-        self.d_loss = self.d_loss_real + self.d_loss_fake
+        self.d_loss = (
+            self.d_loss_real + 
+            self.d_loss_Sw + 
+            self.d_loss_Sf +
+            self.d_loss_Swi
+            )
         #  loss of generator
         self.g_loss = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
@@ -141,6 +155,7 @@ class GAN(object):
         sess = self.sess
         #  initial all variable
         sess.run(tf.global_variables_initializer())
+        #  self.load('./z_100/')
         tf.train.start_queue_runners(sess)
         for epoch in range(1000):
             for batch in range(self.batch_num):
@@ -153,17 +168,19 @@ class GAN(object):
                     feed_dict={self.z: batch_z})
                 g_loss, _ = sess.run([self.g_loss, g_optim],
                     feed_dict={self.z: batch_z})
-                real_imgs, sample_imgs, g_loss, _ = sess.run(
-                    [self.img_batch, self.fake_image, self.g_loss, g_optim],
-                    feed_dict={self.z: batch_z})
+                real_imgs_flip, real_imgs, sample_imgs, g_loss, _ = sess.run(
+                    [self.img_batch_flip, self.img_batch, self.fake_image, 
+                    self.g_loss, g_optim], feed_dict={self.z: batch_z})
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
-            if (epoch+1) % 10 == 0:
-                self.save("z_100/", epoch)
+            if (epoch+1) % 50 == 0:
+                #  self.save("z_100/", epoch)
                 for img_idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(img_idx), img)
                     skimage.io.imsave(
                         "./real/{}.jpg".format(img_idx), real_imgs[img_idx])
+                    skimage.io.imsave(
+                        "./real/{}_flip.jpg".format(img_idx), real_imgs_flip[img_idx])
 
     def test(self):
         sess = self.sess
@@ -178,7 +195,7 @@ class GAN(object):
                     [self.sample_in, self.sample], feed_dict={
                         self.test_sent: sent, self.z: batch_z})
                 skimage.io.imsave("../data/test/{}_{}.jpg".format(idx+1, i), sample_img)
-                #  print sample_in
+                print sample_in
 
     def sent_dim_reducer(self, sent, reuse=False):
         with tf.variable_scope("sent_dim_reducer") as scope:
