@@ -12,9 +12,10 @@ from skip_thoughts import skipthoughts
 class realimg(object):
     def __init__(self, img, match_sent):
         self.img = img
+        self.wimg = []
         self.match_sent = match_sent
         self.mismatch_sent = []
-
+        
     def sent2embed(self, model):
         match_sent = self.match_sent
         if match_sent:
@@ -24,20 +25,21 @@ class realimg(object):
         if mismatch_sent:
             self.mismatch_embed = skipthoughts.encode(model, mismatch_sent)
 
-
 def get_train_batch(img_objs, batch_size=64):
     data_size = len(img_objs)
     i = tf.train.range_input_producer(data_size, shuffle=False).dequeue()
 
     img = []
+    wimg = []
     match_embed = []
     mismatch_embed = []
     for obj in img_objs:
         img.append(obj.img)
+        wimg.append(obj.wimg[0])
         match_embed.append(obj.match_embed[0])
         mismatch_embed.append(obj.mismatch_embed[0])
     img = np.asarray(img)
-    print img.shape
+    wimg = np.asarray(wimg)
     match_embed = np.asarray(match_embed)
     mismatch_embed = np.asarray(mismatch_embed)
 
@@ -45,6 +47,11 @@ def get_train_batch(img_objs, batch_size=64):
     img_data = tf.strided_slice(img_tensor, [i, 0, 0, 0], [(i+1), 64, 64, 3])
     img_data = tf.reshape(img_data, [64, 64, 3])
     img_data.set_shape([64, 64, 3])
+
+    wimg_tensor = tf.convert_to_tensor(wimg, name='wrong_img_data', dtype=tf.float32)
+    wimg_data = tf.strided_slice(wimg_tensor, [i, 0, 0, 0], [(i+1), 64, 64, 3])
+    wimg_data = tf.reshape(wimg_data, [64, 64, 3])
+    wimg_data.set_shape([64, 64, 3])
 
     match_embed_tensor = tf.convert_to_tensor(
         match_embed, name='match_embed_data', dtype=tf.float32)
@@ -58,24 +65,19 @@ def get_train_batch(img_objs, batch_size=64):
     mismatch_embed_data = tf.reshape(mismatch_embed_data, [4800])
     mismatch_embed_data.set_shape([4800])
 
-    img_batch, match_embed_batch, mismatch_embed_batch = tf.train.batch(
-        [img_data, match_embed_data, mismatch_embed_data], batch_size=batch_size)
+    img_batch, wimg_batch, match_embed_batch, mismatch_embed_batch = tf.train.batch(
+        [img_data, wimg_data, match_embed_data, mismatch_embed_data], batch_size=batch_size)
 
-    return img_batch, match_embed_batch, mismatch_embed_batch
+    return img_batch, wimg_batch, match_embed_batch, mismatch_embed_batch
 
-def get_test_batch(sent, batch_size=1):
-    data_size = len(sent)
-    i = tf.train.range_input_producer(data_size, shuffle=False).dequeue()
-
-    test_embed_tensor = tf.convert_to_tensor(
-        sent, name='test_embed_data', dtype=tf.float32)
-    test_embed_data = tf.strided_slice(test_embed_tensor, [i, 0], [(i+1), 4800])
-    test_embed_data = tf.reshape(test_embed_data, [4800])
-    test_embed_data.set_shape([4800])
-
-    test_embed_batch = tf.train.batch([test_embed_data], batch_size=batch_size)
-    
-    return test_embed_batch
+def get_test_sent():
+    with open("../data/sample_testing_text.txt", "r") as f:
+        test_sent = []
+        for row in f.read().splitlines():
+            test_sent.append(row.split(",")[1])
+        model = skipthoughts.load_model()
+        vecs = skipthoughts.encode(model, test_sent)
+        return vecs
     
 def build_imgs():
     with open('/home/chunyo/MLDS2017/hw3/data/tags_clean.csv', 'r') as tag_file:
@@ -109,14 +111,15 @@ def build_imgs():
                 #  print match_sent
                 img_objs.append(realimg(img, match_sent))
                 num += 1
-                #  if num >= 1: break
+                #  if num >= 64: break
         model = skipthoughts.load_model()
         k = 0
-        for img_obj1 in img_objs:
+        for idx, img_obj1 in enumerate(img_objs):
             find = 0
             for img_obj2 in img_objs[1:]:
                 for sent in img_obj2.match_sent:
                     if sent not in img_obj1.match_sent:
+                        img_objs[idx].wimg.append(img_obj2.img)
                         img_obj1.mismatch_sent.append(sent)
                         find += 1
                     if find >= 1: break
@@ -124,15 +127,8 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    with open("img_objs.pk", "w") as f:
+    with open("/train_data/img_objs.pk", "w") as f:
         pk.dump(img_objs, f)
+#  build_imgs()
 
-def build_test_sent():
-    with open("../data/sample_testing_text.txt", "r") as f:
-        test_sent = []
-        for row in f.read().splitlines():
-            test_sent.append(row.split(",")[1])
-        model = skipthoughts.load_model()
-        vecs = skipthoughts.encode(model, test_sent)
-        return vecs
 
