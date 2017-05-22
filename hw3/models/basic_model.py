@@ -332,8 +332,8 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-train_model = GAN(sess, 64, 64, 3, "train")
-train_model.train()
+#  train_model = GAN(sess, 64, 64, 3, "train")
+#  train_model.train()
 
 test_model = GAN(sess, 64, 64, 3, "test")
 test_model.test()

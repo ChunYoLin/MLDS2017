@@ -71,7 +71,7 @@ class GAN(object):
         #  Draw sample of random noise
         self.z = tf.placeholder(tf.float32, [None, self.z_dim], name='z')
         if self.op != "train": 
-            self.test_embed = self.sent_dim_reducer(self.test_sent)
+            self.test_embed = self.sent_dim_reducer(self.test_sent, 'g_sent_reduce')
             self.sample_in = tf.concat([self.z, self.test_embed], 1)
             self.sample = self.sampler(self.sample_in)
             self.saver = tf.train.Saver()
@@ -118,9 +118,10 @@ class GAN(object):
         #  loss of discriminator
         self.d_loss = (
             tf.reduce_mean(ri_logits) -
-            tf.reduce_mean(fi_logits) -
-            tf.reduce_mean(wt_logits)
-            #  tf.reduce_mean(wi_logits)
+                (tf.reduce_mean(fi_logits) +
+                tf.reduce_mean(wt_logits) +
+                tf.reduce_mean(wi_logits)
+                ) / 3.
             )
         #---seperate the variables of discriminator and generator by name---#
         t_vars = tf.trainable_variables()
@@ -170,7 +171,7 @@ class GAN(object):
 
     def test(self):
         sess = self.sess
-        test_sent = data_reader.build_test_sent()
+        test_sent = data_reader.get_test_sent()
         for idx, sent in enumerate(test_sent):
             sent = np.reshape(sent, (1, -1))
             for i in range(5):
@@ -318,8 +319,8 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-train_model = GAN(sess, 64, 64, 3, "train")
-train_model.train()
+#  train_model = GAN(sess, 64, 64, 3, "train")
+#  train_model.train()
 
 test_model = GAN(sess, 64, 64, 3, "test")
 test_model.test()
