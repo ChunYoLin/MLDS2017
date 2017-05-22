@@ -34,7 +34,7 @@ class GAN(object):
         if self.op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("img_objs_3200.pk", "r") as f:
+            with open("img_objs.pk", "r") as f:
                 img_objs = pk.load(f)
             self.data_size = len(img_objs)
             print "number of image {}".format(self.data_size)
@@ -143,7 +143,7 @@ class GAN(object):
         #  initial all variable
         sess.run(tf.global_variables_initializer())
         tf.train.start_queue_runners(sess)
-        for epoch in range(1000):
+        for epoch in range(2000):
             for batch in range(self.batch_num):
                 print "--------------------------------"
                 print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
@@ -152,12 +152,12 @@ class GAN(object):
                 #  g_loss, _, Sr, Sw, Sf = sess.run([self.g_loss, g_optim, self.Sr, self.Sw, self.Sf])
                 #  print "Sr: {}, Sw: {}, Sf: {}".format(np.mean(Sr), np.mean(Sw), np.mean(Sf))
                 d_loss, _ = sess.run([self.d_loss, d_optim])
-                #  g_loss, _ = sess.run([self.g_loss, g_optim])
+                g_loss, _ = sess.run([self.g_loss, g_optim])
                 real_imgs, sample_imgs, g_loss, _ = sess.run(
                     [self.img_batch, self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
-            if (epoch+1) % 100 == 0:
+            if (epoch+1) % 10 == 0:
                 self.save("checkpoint", epoch)
                 for img_idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(img_idx), img)
