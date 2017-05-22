@@ -81,59 +81,67 @@ class GAN(object):
             self.saver = tf.train.Saver()
             self.load("./z_100/")
             return
+        #---Prepare data tensor---#
         #  Encode matching text description
         self.g_h = self.sent_dim_reducer(self.match_embed_batch, name='g_sent_reduce')
         #  Encode mis-matching text description
         self.d_h = self.sent_dim_reducer(self.match_embed_batch, name='d_sent_reduce')
         self.d_h_ = self.sent_dim_reducer(self.mismatch_embed_batch, name='d_sent_reduce', reuse=True)
-        #  Forward through generator
-        self.G_in = tf.concat([self.z, self.g_h], 1)
-        self.fake_image = self.generator(self.G_in)
+        #  flip image horizontally
         self.img_batch_flip = []
         for i in range(self.img_batch.shape[0]):
             self.img_batch_flip.append(
                 tf.image.random_flip_left_right(self.img_batch[i]))
         self.img_batch_flip = tf.convert_to_tensor(self.img_batch_flip)
+
+        #---Forward through generator---#
+        self.G_in = tf.concat([self.z, self.g_h], 1)
+        self.fake_image_batch = self.generator(self.G_in)
+        
+        #---Forward through discriminator---#
         #  real image, right text
-        self.Sr, self.Sr_logits = self.discriminator(
+        self.ri, self.ri_logits = self.discriminator(
             self.d_h, self.img_batch_flip, reuse=False)
-        Sr, Sr_logits = self.Sr, self.Sr_logits
-        self.d_loss_real = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.ones_like(Sr), logits=Sr_logits))
+        ri, ri_logits = self.ri, self.ri_logits
         #  fake image, right text
-        self.Sf, self.Sf_logits = self.discriminator(
-            self.d_h, self.fake_image, reuse=True)
-        Sf, Sf_logits = self.Sf, self.Sf_logits
-        self.d_loss_Sf = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.zeros_like(Sf), logits=Sf_logits))
+        self.fi, self.fi_logits = self.discriminator(
+            self.d_h, self.fake_image_batch, reuse=True)
+        fi, fi_logits = self.fi, self.fi_logits
         #  real image, wrong text
-        self.Sw, self.Sw_logits = self.discriminator(
+        self.wt, self.wt_logits = self.discriminator(
             self.d_h_, self.img_batch_flip, reuse=True)
-        Sw, Sw_logits = self.Sw, self.Sw_logits
-        self.d_loss_Sw = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.zeros_like(Sw), logits=Sw_logits))
+        wt, wt_logits = self.wt, self.wt_logits
         #  wrong image, right text
-        self.Swi, self.Swi_logits = self.discriminator(
+        self.wi, self.wi_logits = self.discriminator(
             self.d_h, self.wimg_batch, reuse=True)
-        Swi, Swi_logits = self.Swi, self.Swi_logits
-        self.d_loss_Swi = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.zeros_like(Swi), logits=Swi_logits))
-        #  loss of discriminator
-        self.d_loss = (
-            self.d_loss_real + 
-            self.d_loss_Sw + 
-            self.d_loss_Sf +
-            self.d_loss_Swi
-            )
+        wi, wi_logits = self.wi, self.wi_logits
+        
+        #---define loss tensor---#
         #  loss of generator
         self.g_loss = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.ones_like(Sf), logits=Sf_logits))
-        #  seperate the variables of discriminator and generator by name
+                labels=tf.ones_like(fi), logits=fi_logits))
+        #  loss of discriminator
+        self.d_loss_ri = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.ones_like(ri), logits=ri_logits))
+        self.d_loss_fi = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(fi), logits=fi_logits))
+        self.d_loss_wt = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(wt), logits=wt_logits))
+        self.d_loss_wi = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(wi), logits=wi_logits))
+        self.d_loss = (
+            self.d_loss_ri + 
+            self.d_loss_wt + 
+            self.d_loss_fi +
+            self.d_loss_wi
+            )
+        
+        #---seperate the variables of discriminator and generator by name---#
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
         self.g_vars = [var for var in t_vars if 'g_' in var.name]
@@ -164,10 +172,9 @@ class GAN(object):
                     feed_dict={self.z: batch_z, self.keep_prob: 0.5})
                 g_loss, _ = sess.run([self.g_loss, g_optim],
                     feed_dict={self.z: batch_z, self.keep_prob: 0.5})
-                real_imgs_flip, real_imgs, sample_imgs, g_loss, _ = sess.run(
-                    [self.img_batch_flip, self.img_batch, self.fake_image, 
-                    self.g_loss, g_optim], feed_dict={self.z: batch_z, 
-                    self.keep_prob: 0.5})
+                real_imgs, sample_imgs, g_loss, _ = sess.run(
+                    [self.img_batch_flip, self.fake_image_batch, self.g_loss, 
+                    g_optim], feed_dict={self.z: batch_z, self.keep_prob: 0.5})
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
             if (epoch+1) % 50 == 0:
@@ -176,8 +183,6 @@ class GAN(object):
                     skimage.io.imsave("./sample/{}.jpg".format(img_idx), img)
                     skimage.io.imsave(
                         "./real/{}.jpg".format(img_idx), real_imgs[img_idx])
-                    skimage.io.imsave(
-                        "./real/{}_flip.jpg".format(img_idx), real_imgs_flip[img_idx])
 
     def test(self):
         sess = self.sess
