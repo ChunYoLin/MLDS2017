@@ -75,7 +75,7 @@ class GAN(object):
             self.sample_in = tf.concat([self.z, self.test_embed], 1)
             self.sample = self.sampler(self.sample_in)
             self.saver = tf.train.Saver()
-            self.load("./z_100/")
+            self.load("./wgan/")
             return
         #---Prepare data tensor---#
         #  Encode matching text description
