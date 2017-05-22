@@ -34,7 +34,7 @@ class GAN(object):
         if self.op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("img_objs_3200.pk", "r") as f:
+            with open("img_objs.pk", "r") as f:
                 img_objs = pk.load(f)
             self.data_size = len(img_objs)
             print "number of image {}".format(self.data_size)
@@ -143,7 +143,7 @@ class GAN(object):
         #  initial all variable
         sess.run(tf.global_variables_initializer())
         tf.train.start_queue_runners(sess)
-        for epoch in range(1000):
+        for epoch in range(200):
             for batch in range(self.batch_num):
                 print "--------------------------------"
                 print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
@@ -157,7 +157,7 @@ class GAN(object):
                     [self.img_batch, self.fake_image, self.g_loss, g_optim])
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
-            if (epoch+1) % 100 == 0:
+            if (epoch+1) % 10 == 0:
                 self.save("checkpoint", epoch)
                 for img_idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(img_idx), img)
@@ -315,12 +315,12 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-#  train_model = GAN(sess, 64, 64, 3, "train")
-#  train_model.train()
+train_model = GAN(sess, 64, 64, 3, "train")
+train_model.train()
 
-test_model = GAN(sess, 64, 64, 3, "test")
-imgs = test_model.test()
-for idx, img in enumerate(imgs):
-    for i in range(10):
-        skimage.io.imsave("./test/{}_{}.jpg".format(idx+1, i), img[i])
+#  test_model = GAN(sess, 64, 64, 3, "test")
+#  imgs = test_model.test()
+#  for idx, img in enumerate(imgs):
+    #  for i in range(10):
+        #  skimage.io.imsave("./test/{}_{}.jpg".format(idx+1, i), img[i])
 
