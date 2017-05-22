@@ -117,86 +117,97 @@ class GAN(object):
         wi, wi_logits = self.wi, self.wi_logits
         
         #---define loss tensor---#
-        #  loss of generator
-        self.g_loss = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.ones_like(fi), logits=fi_logits))
-        #  loss of discriminator
-        self.d_loss_ri = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.ones_like(ri), logits=ri_logits))
-        self.d_loss_fi = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.zeros_like(fi), logits=fi_logits))
-        self.d_loss_wt = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.zeros_like(wt), logits=wt_logits))
-        self.d_loss_wi = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels=tf.zeros_like(wi), logits=wi_logits))
+        #  #  loss of generator
+        #  self.g_loss = tf.reduce_mean(
+            #  tf.nn.sigmoid_cross_entropy_with_logits(
+                #  labels=tf.ones_like(fi), logits=fi_logits))
+        #  #  loss of discriminator
+        #  self.d_loss_ri = tf.reduce_mean(
+            #  tf.nn.sigmoid_cross_entropy_with_logits(
+                #  labels=tf.ones_like(ri), logits=ri_logits))
+        #  self.d_loss_fi = tf.reduce_mean(
+            #  tf.nn.sigmoid_cross_entropy_with_logits(
+                #  labels=tf.zeros_like(fi), logits=fi_logits))
+        #  self.d_loss_wt = tf.reduce_mean(
+            #  tf.nn.sigmoid_cross_entropy_with_logits(
+                #  labels=tf.zeros_like(wt), logits=wt_logits))
+        #  self.d_loss_wi = tf.reduce_mean(
+            #  tf.nn.sigmoid_cross_entropy_with_logits(
+                #  labels=tf.zeros_like(wi), logits=wi_logits))
+        #  self.d_loss = (
+            #  self.d_loss_ri + 
+            #  self.d_loss_wt + 
+            #  self.d_loss_fi +
+            #  self.d_loss_wi
+            #  )
+        self.g_loss = tf.reduce_mean(-fi_logits)
         self.d_loss = (
-            self.d_loss_ri + 
-            self.d_loss_wt + 
-            self.d_loss_fi +
-            self.d_loss_wi
+            tf.reduce_mean(ri_logits) -
+            tf.reduce_mean(fi_logits) -
+            tf.reduce_mean(wt_logits) -
+            tf.reduce_mean(wi_logits)
             )
-        
         #---seperate the variables of discriminator and generator by name---#
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
         self.g_vars = [var for var in t_vars if 'g_' in var.name]
         self.saver = tf.train.Saver()
 
-    def train(self):
-        #  training op
-        learning_rate_d = 0.0002
-        learning_rate_g = 0.0002
-        d_optim = tf.train.AdamOptimizer(learning_rate_d).minimize(
-            self.d_loss, var_list=self.d_vars)
-        g_optim = tf.train.AdamOptimizer(learning_rate_g).minimize(
+        #---weight clipping---#
+        self.d_clip = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in self.d_vars]
+
+        #---training op---#
+        learning_rate_d = 0.00005
+        learning_rate_g = 0.00005
+        #  self.d_optim = tf.train.AdamOptimizer(learning_rate_d).minimize(
+            #  self.d_loss, var_list=self.d_vars)
+        #  self.g_optim = tf.train.AdamOptimizer(learning_rate_g).minimize(
+            #  self.g_loss, var_list=self.g_vars)
+        self.d_optim = tf.train.RMSPropOptimizer(learning_rate_d).minimize(
+            -self.d_loss, var_list=self.d_vars)
+        self.g_optim = tf.train.RMSPropOptimizer(learning_rate_g).minimize(
             self.g_loss, var_list=self.g_vars)
+
+    def train(self):
         #  session
         sess = self.sess
         #  initial all variable
         sess.run(tf.global_variables_initializer())
-        #  self.load('./z_100/')
         tf.train.start_queue_runners(sess)
         for epoch in range(10000):
-            for batch in range(self.batch_num):
-                batch_z = np.random.uniform(
-                    -1, 1, [self.batch_size, self.z_dim]).astype(np.float32)
-                batch_z *= 100
-                print "--------------------------------"
-                print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
-                d_loss, _ = sess.run([self.d_loss, d_optim],
-                    feed_dict={self.z: batch_z, self.keep_prob: 0.5})
-                g_loss, _ = sess.run([self.g_loss, g_optim],
-                    feed_dict={self.z: batch_z, self.keep_prob: 0.5})
-                real_imgs, sample_imgs, g_loss, _ = sess.run(
-                    [self.img_batch_flip, self.fake_image_batch, self.g_loss, 
-                    g_optim], feed_dict={self.z: batch_z, self.keep_prob: 0.5})
-                print "d_loss {}".format(d_loss)
-                print "g_loss {}".format(g_loss)
-            if (epoch+1) % 50 == 0:
-                #  self.save("z_100/", epoch)
-                for img_idx, img in enumerate(sample_imgs):
-                    skimage.io.imsave("./sample/{}.jpg".format(img_idx), img)
-                    skimage.io.imsave(
-                        "./real/{}.jpg".format(img_idx), real_imgs[img_idx])
+            batch_z = np.random.uniform(
+                -1, 1, [self.batch_size, self.z_dim]).astype(np.float32)
+            print "--------------------------------"
+            print "epoch {}".format(epoch)
+            for _ in range(5):
+                d_loss, _, _ = sess.run(
+                    [self.d_loss, self.d_optim, self.d_clip],
+                    feed_dict={self.z: batch_z, self.keep_prob: 1.0}
+                    )
+            real_imgs, sample_imgs, g_loss, _ = sess.run(
+                [self.img_batch_flip, self.fake_image_batch, self.g_loss, 
+                self.g_optim], 
+                feed_dict={self.z: batch_z, self.keep_prob: 1.0}
+                )
+            print "d_loss {}".format(d_loss)
+            print "g_loss {}".format(g_loss)
+            if (epoch+1) % 100 == 0:
+                for idx, img in enumerate(sample_imgs):
+                    skimage.io.imsave("./sample/{}.jpg".format(idx), img)
+                    skimage.io.imsave("./real/{}.jpg".format(idx), real_imgs[idx])
 
     def test(self):
         sess = self.sess
         test_sent = data_reader.build_test_sent()
         for idx, sent in enumerate(test_sent):
             sent = np.reshape(sent, (1, -1))
-            for i in range(10):
+            for i in range(5):
                 batch_z = np.random.uniform(
                     0, 1, [self.batch_size, self.z_dim]).astype(np.float32)
-                batch_z *= 100
                 sample_in, sample_img = sess.run(
                     [self.sample_in, self.sample], feed_dict={
                         self.test_sent: sent, self.z: batch_z})
-                skimage.io.imsave("../data/test/{}_{}.jpg".format(idx+1, i), sample_img)
+                skimage.io.imsave("../data/test/{}_{}.jpg".format(idx+1, i+1), sample_img)
 
     def sent_dim_reducer(self, sent, name, reuse=False):
         with tf.variable_scope("sent_dim_reducer") as scope:
@@ -263,7 +274,6 @@ class GAN(object):
                 h0, [self.batch_size, s_h8, s_w8, self.gf_dim*4],
                 name='g_h1', with_w=True)
             h1 = tf.nn.dropout(tf.nn.relu(self.g_bn1(self.h1)), self.keep_prob)
-            
             print h1.shape
             self.h2, self.h2_w, self.h2_b = deconv2d(
                 h1, [self.batch_size, s_h4, s_w4, self.gf_dim*2],
