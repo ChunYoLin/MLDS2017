@@ -80,7 +80,7 @@ def get_test_sent():
         return vecs
     
 def build_imgs():
-    with open('/home/chunyo/MLDS2017/hw3/data/tags_clean.csv', 'r') as tag_file:
+    with open('../data/tags_clean.csv', 'r') as tag_file:
         tag_reader = csv.reader(tag_file, delimiter='\t')
         img_objs = []
         colors = [
@@ -91,7 +91,7 @@ def build_imgs():
             img_id = row[0].split(',')[0]
             tag_row = [row[0].split(',')[1]] + row[1:]
             img = skimage.io.imread(
-                '/home/chunyo/MLDS2017/hw3/data/faces/{}.jpg'.format(int(img_id)))
+                '../data/faces/{}.jpg'.format(int(img_id)))
             img = skimage.transform.resize(img, (64, 64))
             match_sent = []
             mismatch_sent = []
@@ -111,7 +111,7 @@ def build_imgs():
                 #  print match_sent
                 img_objs.append(realimg(img, match_sent))
                 num += 1
-                #  if num >= 64: break
+                if num >= 64: break
         model = skipthoughts.load_model()
         k = 0
         for idx, img_obj1 in enumerate(img_objs):
@@ -127,7 +127,7 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    with open("/train_data/img_objs.pk", "w") as f:
+    with open("./train_data/img_objs_64.pk", "w") as f:
         pk.dump(img_objs, f)
 #  build_imgs()
 

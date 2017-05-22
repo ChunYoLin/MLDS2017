@@ -55,6 +55,7 @@ class GAN(object):
         self.df_dim = 64
         self.z_dim = 100
         self.embed_size = 128
+        self.keep_prob = tf.placeholder(tf.float32)
         #  batch_norm of discriminator
         self.d_bn0 = batch_norm(name="d_bn0")
         self.d_bn1 = batch_norm(name="d_bn1")
@@ -132,12 +133,6 @@ class GAN(object):
         self.g_loss = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=tf.ones_like(Sf), logits=Sf_logits))
-        #  self.g_loss = tf.reduce_mean(tf.square(
-            #  tf.nn.sigmoid_cross_entropy_with_logits(
-                #  labels=tf.ones_like(Sf), logits=Sf_logits) -
-            #  tf.nn.sigmoid_cross_entropy_with_logits(
-                #  labels=tf.zeros_like(Sf), logits=Sf_logits))
-            #  )
         #  seperate the variables of discriminator and generator by name
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
@@ -166,12 +161,13 @@ class GAN(object):
                 print "--------------------------------"
                 print "epoch {} batch {}/{}".format(epoch, batch + 1, self.batch_num)
                 d_loss, _ = sess.run([self.d_loss, d_optim],
-                    feed_dict={self.z: batch_z})
+                    feed_dict={self.z: batch_z, self.keep_prob: 0.5})
                 g_loss, _ = sess.run([self.g_loss, g_optim],
-                    feed_dict={self.z: batch_z})
+                    feed_dict={self.z: batch_z, self.keep_prob: 0.5})
                 real_imgs_flip, real_imgs, sample_imgs, g_loss, _ = sess.run(
                     [self.img_batch_flip, self.img_batch, self.fake_image, 
-                    self.g_loss, g_optim], feed_dict={self.z: batch_z})
+                    self.g_loss, g_optim], feed_dict={self.z: batch_z, 
+                    self.keep_prob: 0.5})
                 print "d_loss {}".format(d_loss)
                 print "g_loss {}".format(g_loss)
             if (epoch+1) % 50 == 0:
@@ -261,17 +257,18 @@ class GAN(object):
             self.h1, self.h1_w, self.h1_b = deconv2d(
                 h0, [self.batch_size, s_h8, s_w8, self.gf_dim*4],
                 name='g_h1', with_w=True)
-            h1 = tf.nn.relu(self.g_bn1(self.h1))
+            h1 = tf.nn.dropout(tf.nn.relu(self.g_bn1(self.h1)), self.keep_prob)
+            
             print h1.shape
             self.h2, self.h2_w, self.h2_b = deconv2d(
                 h1, [self.batch_size, s_h4, s_w4, self.gf_dim*2],
                 name='g_h2', with_w=True)
-            h2 = tf.nn.relu(self.g_bn2(self.h2))
+            h2 = tf.nn.dropout(tf.nn.relu(self.g_bn2(self.h2)), self.keep_prob)
             print h2.shape
             self.h3, self.h3_w, self.h3_b = deconv2d(
                 h2, [self.batch_size, s_h2, s_w2, self.gf_dim*1],
                 name='g_h3', with_w=True)
-            h3 = tf.nn.relu(self.g_bn3(self.h3))
+            h3 = tf.nn.dropout(tf.nn.relu(self.g_bn3(self.h3)), self.keep_prob)
             print h3.shape
             self.h4, self.h4_w, self.h4_b = deconv2d(
                 h3, [self.batch_size, s_h, s_w, self.c_dim],
