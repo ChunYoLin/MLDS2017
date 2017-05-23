@@ -30,7 +30,7 @@ class GAN(object):
         if op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("./train_data/img_objs.pk", "r") as f:
+            with open("./train_data/img_objs_new.pk", "r") as f:
                 img_objs = pk.load(f)
             batch = data_reader.get_train_batch(img_objs, self.batch_size)
             self.rimg_batch = batch[0]
@@ -72,6 +72,7 @@ class GAN(object):
             self.test_embed = self.sent_dim_reducer(self.test_sent, name='g_sent_reduce')
             self.sample_in = tf.concat([self.z, self.test_embed], 1)
             self.sample = self.sampler(self.sample_in)
+            self.saver = tf.train.Saver()
             return
         #  Encode matching captions
         self.g_h = self.sent_dim_reducer(self.match_embed_batch, name='g_sent_reduce')
@@ -113,8 +114,9 @@ class GAN(object):
         #  loss of discriminator
         self.d_loss = (
             tf.reduce_mean(ri_logits) -
-            (tf.reduce_mean(fi_logits)+tf.reduce_mean(wt_logits))/2. 
-            #  tf.reduce_mean(wi_logits)
+            tf.reduce_mean(fi_logits) -
+            tf.reduce_mean(wt_logits) -
+            tf.reduce_mean(wi_logits)
         )
         #---seperate the variables of discriminator and generator by name---#
         t_vars = tf.trainable_variables()
@@ -138,8 +140,9 @@ class GAN(object):
         sess = self.sess
         #  initial all variable
         sess.run(tf.global_variables_initializer())
+        self.load('./wgan_new/')
         tf.train.start_queue_runners(sess)
-        for epoch in range(1000):
+        for epoch in range(100000):
             #  sample noise
             batch_z = np.random.uniform(
                 -1, 1, [self.batch_size, self.z_dim]).astype(np.float32)
@@ -177,12 +180,12 @@ class GAN(object):
             print "g_loss {}".format(g_loss)
             #  save and test the model
             if (epoch+1) % 100 == 0:
-                self.save('./wgan_1/', epoch)
+                self.save('./wgan_new/', epoch+11229)
                 for idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(idx), img)
     def test(self):
         #  load model
-        model_name = 'wgan_1'
+        model_name = 'wgan_new'
         test_dir = '../data/test/{}/'.format(model_name)
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
@@ -290,7 +293,7 @@ class GAN(object):
 
     def sampler(self, z):
         with tf.variable_scope("generator") as scope:
-            scope.reuse_variables()
+            #  scope.reuse_variables()
             s_h, s_w = self.output_height, self.output_width
             s_h2, s_w2 = conv_out_size_same(s_h, 2), conv_out_size_same(s_w, 2)
             s_h4, s_w4 = conv_out_size_same(s_h2, 2), conv_out_size_same(s_w2, 2)
@@ -343,8 +346,8 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-train_model = GAN(sess, 64, 64, 3, "train")
-train_model.train()
-#  test_model = GAN(sess, 64, 64, 3, "test")
-#  test_model.test()
+#  train_model = GAN(sess, 64, 64, 3, "train")
+#  train_model.train()
+test_model = GAN(sess, 64, 64, 3, "test")
+test_model.test()
 

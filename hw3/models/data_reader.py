@@ -6,6 +6,7 @@ import skimage.transform
 import tensorflow as tf
 import numpy as np
 import cPickle as pk
+import random
 from skip_thoughts import skipthoughts
 
 
@@ -106,12 +107,17 @@ def build_imgs():
                         tag_eyes.append(tag)
             for t_h in tag_hair:
                 for t_e in tag_eyes:
-                    match_sent.append('{} {}'.format(t_h, t_e))
+                    r = random.random()
+                    if r > 0.5:
+                        match_sent.append('{} {}'.format(t_h, t_e))
+                    else:
+                        match_sent.append('{} {}'.format(t_e, t_h))
             if match_sent:
                 #  print match_sent
                 img_objs.append(realimg(img, match_sent))
                 num += 1
-                if num >= 64: break
+                #  if num >= 64: break
+                #  print match_sent
         model = skipthoughts.load_model()
         k = 0
         for idx, img_obj1 in enumerate(img_objs):
@@ -127,7 +133,7 @@ def build_imgs():
             img_obj1.sent2embed(model)
             print "{}/{}".format(k, len(img_objs))
             k += 1
-    with open("./train_data/img_objs.pk", "w") as f:
+    with open("./train_data/img_objs_new.pk", "w") as f:
         pk.dump(img_objs, f)
 #  build_imgs()
 
