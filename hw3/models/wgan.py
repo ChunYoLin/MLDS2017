@@ -18,7 +18,7 @@ def conv_out_size_same(size, stride):
     return int(math.ceil(float(size) / float(stride)))
 
 
-class GAN(object):
+class WGAN(object):
     def __init__(self, sess, img_h, img_w, img_c, op):
         #  input
         self.sess = sess
@@ -30,7 +30,7 @@ class GAN(object):
         if self.op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("./train_data/img_objs.pk", "r") as f:
+            with open("./train_data/img_objs_64.pk", "r") as f:
                 img_objs = pk.load(f)
             self.data_size = len(img_objs)
             print "number of image {}".format(self.data_size)
@@ -118,8 +118,7 @@ class GAN(object):
         #  loss of discriminator
         self.d_loss = (
             tf.reduce_mean(ri_logits) -
-            tf.reduce_mean(fi_logits) -
-            tf.reduce_mean(wt_logits)
+            (tf.reduce_mean(fi_logits)+tf.reduce_mean(wt_logits))/2.
             #  tf.reduce_mean(wi_logits)
             )
         #---seperate the variables of discriminator and generator by name---#
@@ -163,7 +162,7 @@ class GAN(object):
             print "d_loss {}".format(d_loss)
             print "g_loss {}".format(g_loss)
             if (epoch+1) % 100 == 0:
-                self.save('./wgan/', epoch)
+                #  self.save('./wgan/', epoch)
                 for idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(idx), img)
                     skimage.io.imsave("./real/{}.jpg".format(idx), real_imgs[idx])
@@ -318,8 +317,8 @@ class GAN(object):
             return False, 0
 
 sess = tf.Session()
-train_model = GAN(sess, 64, 64, 3, "train")
+train_model = WGAN(sess, 64, 64, 3, "train")
 train_model.train()
 
-test_model = GAN(sess, 64, 64, 3, "test")
+test_model = WGAN(sess, 64, 64, 3, "test")
 test_model.test()
