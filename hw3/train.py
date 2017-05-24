@@ -140,7 +140,6 @@ class WGAN(object):
         sess = self.sess
         #  initial all variable
         sess.run(tf.global_variables_initializer())
-        self.load('./wgan_new/')
         tf.train.start_queue_runners(sess)
         for epoch in range(100000):
             #  sample noise
@@ -180,7 +179,7 @@ class WGAN(object):
             print "g_loss {}".format(g_loss)
             #  save and test the model
             if (epoch+1) % 100 == 0:
-                self.save('./wgan_new/', epoch+11229)
+                self.save('./wgan_new/', epoch)
                 for idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(idx), img)
     def test(self):
@@ -345,9 +344,8 @@ class WGAN(object):
             print(" [*] Failed to find a checkpoint")
             return False, 0
 
+data_reader.build_imgs()
 sess = tf.Session()
-#  train_model = GAN(sess, 64, 64, 3, "train")
-#  train_model.train()
-test_model = GAN(sess, 64, 64, 3, "test")
-test_model.test()
+train_model = GAN(sess, 64, 64, 3, "train")
+train_model.train()
 

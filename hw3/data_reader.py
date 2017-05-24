@@ -81,18 +81,19 @@ def get_test_sent(test_file):
         return vecs
     
 def build_imgs():
-    with open('../data/tags_clean.csv', 'r') as tag_file:
+    with open('./data/tags_clean.csv', 'r') as tag_file:
         tag_reader = csv.reader(tag_file, delimiter='\t')
         img_objs = []
         colors = [
             "red", "orange", "yellow", "green", "blue", "purple", "blonde",
             "pink", "black", "white", "brown"]
         num = 0
+        print "generate captions from training tags....."
         for row in tag_reader:
             img_id = row[0].split(',')[0]
             tag_row = [row[0].split(',')[1]] + row[1:]
             img = skimage.io.imread(
-                '../data/faces/{}.jpg'.format(int(img_id)))
+                './data/faces/{}.jpg'.format(int(img_id)))
             img = skimage.transform.resize(img, (64, 64))
             match_sent = []
             mismatch_sent = []
@@ -135,6 +136,5 @@ def build_imgs():
             k += 1
     with open("./train_data/img_objs_new.pk", "w") as f:
         pk.dump(img_objs, f)
-#  build_imgs()
 
 
