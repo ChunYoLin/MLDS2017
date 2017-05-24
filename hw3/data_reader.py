@@ -7,7 +7,7 @@ import tensorflow as tf
 import numpy as np
 import cPickle as pk
 import random
-from skip_thoughts import skipthoughts
+from skipthoughts import skipthoughts
 
 
 class realimg(object):

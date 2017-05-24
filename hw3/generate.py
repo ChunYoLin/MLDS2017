@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from skip_thoughts import skipthoughts
+from skipthoughts import skipthoughts
 import scipy.misc
 import skimage
 import skimage.io
