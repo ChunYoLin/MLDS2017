@@ -18,7 +18,7 @@ def conv_out_size_same(size, stride):
     return int(math.ceil(float(size) / float(stride)))
 
 
-class WGAN(object):
+class GAN(object):
     def __init__(self, sess, img_h, img_w, img_c, op):
         #  input
         self.sess = sess
@@ -30,7 +30,7 @@ class WGAN(object):
         if self.op == "train":
             self.batch_size = 64
             print "loading training data......"
-            with open("./train_data/img_objs_64.pk", "r") as f:
+            with open("./train_data/img_objs.pk", "r") as f:
                 img_objs = pk.load(f)
             self.data_size = len(img_objs)
             print "number of image {}".format(self.data_size)
@@ -71,11 +71,11 @@ class WGAN(object):
         #  Draw sample of random noise
         self.z = tf.placeholder(tf.float32, [None, self.z_dim], name='z')
         if self.op != "train": 
-            self.test_embed = self.sent_dim_reducer(self.test_sent)
+            self.test_embed = self.sent_dim_reducer(self.test_sent, name='g_sent_reduce')
             self.sample_in = tf.concat([self.z, self.test_embed], 1)
             self.sample = self.sampler(self.sample_in)
             self.saver = tf.train.Saver()
-            self.load("./z_100/")
+            self.load("./dropout/")
             return
         #---Prepare data tensor---#
         #  Encode matching text description
@@ -114,28 +114,39 @@ class WGAN(object):
         
         #---define loss tensor---#
         #  loss of generator
-        self.g_loss = tf.reduce_mean(-fi_logits)
+        self.g_loss = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.ones_like(fi), logits=fi_logits))
         #  loss of discriminator
+        self.d_loss_ri = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.ones_like(ri), logits=ri_logits))
+        self.d_loss_fi = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(fi), logits=fi_logits))
+        self.d_loss_wt = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(wt), logits=wt_logits))
+        self.d_loss_wi = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels=tf.zeros_like(wi), logits=wi_logits))
         self.d_loss = (
-            tf.reduce_mean(ri_logits) -
-            (tf.reduce_mean(fi_logits)+tf.reduce_mean(wt_logits))/2.
-            #  tf.reduce_mean(wi_logits)
+            self.d_loss_ri + 
+            self.d_loss_wt + 
+            self.d_loss_fi +
+            self.d_loss_wi
             )
         #---seperate the variables of discriminator and generator by name---#
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'd_' in var.name]
         self.g_vars = [var for var in t_vars if 'g_' in var.name]
         self.saver = tf.train.Saver()
-
-        #---weight clipping---#
-        self.d_clip = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in self.d_vars]
-
         #---training op---#
         learning_rate_d = 0.00005
         learning_rate_g = 0.00005
-        self.d_optim = tf.train.RMSPropOptimizer(learning_rate_d).minimize(
-            -self.d_loss, var_list=self.d_vars)
-        self.g_optim = tf.train.RMSPropOptimizer(learning_rate_g).minimize(
+        self.d_optim = tf.train.AdamOptimizer(learning_rate_d).minimize(
+            self.d_loss, var_list=self.d_vars)
+        self.g_optim = tf.train.AdamOptimizer(learning_rate_g).minimize(
             self.g_loss, var_list=self.g_vars)
 
     def train(self):
@@ -149,11 +160,15 @@ class WGAN(object):
                 -1, 1, [self.batch_size, self.z_dim]).astype(np.float32)
             print "--------------------------------"
             print "epoch {}".format(epoch)
-            for _ in range(5):
-                d_loss, _, _ = sess.run(
-                    [self.d_loss, self.d_optim, self.d_clip],
-                    feed_dict={self.z: batch_z, self.keep_prob: 1.0}
-                    )
+            d_loss, _, _ = sess.run(
+                [self.d_loss, self.d_optim, self.d_clip],
+                feed_dict={self.z: batch_z, self.keep_prob: 1.0}
+                )
+            real_imgs, sample_imgs, g_loss, _ = sess.run(
+                [self.img_batch_flip, self.fake_image_batch, self.g_loss, 
+                self.g_optim], 
+                feed_dict={self.z: batch_z, self.keep_prob: 1.0}
+                )
             real_imgs, sample_imgs, g_loss, _ = sess.run(
                 [self.img_batch_flip, self.fake_image_batch, self.g_loss, 
                 self.g_optim], 
@@ -162,14 +177,14 @@ class WGAN(object):
             print "d_loss {}".format(d_loss)
             print "g_loss {}".format(g_loss)
             if (epoch+1) % 100 == 0:
-                #  self.save('./wgan/', epoch)
+                self.save('./wgan/', epoch)
                 for idx, img in enumerate(sample_imgs):
                     skimage.io.imsave("./sample/{}.jpg".format(idx), img)
                     skimage.io.imsave("./real/{}.jpg".format(idx), real_imgs[idx])
 
     def test(self):
         sess = self.sess
-        test_sent = data_reader.build_test_sent()
+        test_sent = data_reader.get_test_sent()
         for idx, sent in enumerate(test_sent):
             sent = np.reshape(sent, (1, -1))
             for i in range(5):
@@ -317,8 +332,8 @@ class WGAN(object):
             return False, 0
 
 sess = tf.Session()
-train_model = WGAN(sess, 64, 64, 3, "train")
-train_model.train()
+#  train_model = GAN(sess, 64, 64, 3, "train")
+#  train_model.train()
 
-test_model = WGAN(sess, 64, 64, 3, "test")
+test_model = GAN(sess, 64, 64, 3, "test")
 test_model.test()
