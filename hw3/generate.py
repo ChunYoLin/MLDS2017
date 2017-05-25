@@ -185,7 +185,7 @@ class WGAN(object):
                     #  skimage.io.imsave("./sample/{}.jpg".format(idx), img)
     def test(self):
         #  load model
-        model_name = 'wgan_new'
+        model_name = 'wgan'
         test_dir = './samples/'
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
