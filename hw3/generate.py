@@ -180,7 +180,7 @@ class WGAN(object):
             print "g_loss {}".format(g_loss)
             #  save and test the model
             if (epoch+1) % 100 == 0:
-                self.save('./wgan_new/', epoch)
+                self.save('./wgan/', epoch)
                 #  for idx, img in enumerate(sample_imgs):
                     #  skimage.io.imsave("./sample/{}.jpg".format(idx), img)
     def test(self):
