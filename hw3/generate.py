@@ -207,6 +207,7 @@ class WGAN(object):
                 vals = sess.run(fetches, feed_dict=feed_dict)
                 #  write out the generated image
                 sample_img = vals["sample_img"]
+                sample_img = np.reshape(sample_img, [64, 64, 3])
                 skimage.io.imsave("{}/sample_{}_{}.jpg".format(
                     test_dir, idx+1, i+1), sample_img)
 

@@ -2,4 +2,4 @@ data/
 samples/
 train_data/
 wgan*
-
+*pyc
