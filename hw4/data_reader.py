@@ -55,8 +55,6 @@ def read_raw():
         convs2id.append(lines2id)
     return convs2id, word_dict, inv_word_dict
 
-convs2id, word_dict, inv_word_dict = read_raw()
-
 def build_batch(convs2id, word_dict, batch_size=4, data_size=1280):
     convs_choosed = random.sample(range(len(convs2id)), 1000)
     encoder_input_batch = []
@@ -102,9 +100,5 @@ def build_batch(convs2id, word_dict, batch_size=4, data_size=1280):
             decoder_target_batch = []
 
     return encoder_input_batchs, decoder_input_batchs, decoder_target_batchs
-encoder_input_batchs , decoder_input_batchs , decoder_target_batchs = (
-    build_batch(convs2id, word_dict))
-print len(decoder_target_batchs[0])
-print len(decoder_input_batchs[0])
             
 

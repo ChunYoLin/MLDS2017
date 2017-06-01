@@ -1,12 +1,14 @@
 import tensorflow as tf
+import data_reader
 
 
 class chatbot(object):
 
     def __init__(self):
-        self.batch_size = 1
+        self.data_size = 10000
+        self.batch_size = 32
         self.num_steps = 5
-        self.vocab_size = 100
+        self.vocab_size = 10003
         self.embed_size = 256
         self.build_model()
         self.train()
@@ -73,21 +75,50 @@ class chatbot(object):
         self.optim = tf.train.AdamOptimizer(0.001).minimize(self.loss)
 
     def train(self):
-        batch = [[6, 0, 0], [3, 4, 0], [9, 8, 7]]
-        target_batch = [[1, 2, 0], [5, 6, 0], [9, 8, 1]]
-        decoder_inputs_batch = [[0, 1, 0], [0, 5, 0], [0, 9, 8]]
+        convs2id, word_dict, inv_word_dict = data_reader.read_raw()
+        self.word_dict = word_dict
+        self.inv_word_dict = inv_word_dict
+        self.batchs = data_reader.build_batch(convs2id, word_dict, 
+            batch_size=self.batch_size, data_size=self.data_size)
+        encoder_input_batchs = self.batchs[0]
+        decoder_input_batchs = self.batchs[1]
+        decoder_target_batchs = self.batchs[2]
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
-        for i in range(100):
-            for j in range(len(batch)):
+        for epoch in range(100):
+            losses = 0.
+            for j in range(len(encoder_input_batchs)):
                 feed_dict = {
-                    self.encoder_inputs: batch,
-                    self.decoder_targets: target_batch,
-                    self.decoder_inputs: decoder_inputs_batch
-                    }
-                _, loss = self.sess.run([self.optim, self.loss], feed_dict=feed_dict)
-                print loss
+                    self.encoder_inputs: encoder_input_batchs[j],
+                    self.decoder_targets: decoder_target_batchs[j],
+                    self.decoder_inputs: decoder_input_batchs[j]
+                }
+                _, loss, pred = self.sess.run(
+                    [self.optim, self.loss, self.decoder_prediction], 
+                    feed_dict=feed_dict
+                )
+                losses += loss / len(encoder_input_batchs)
+            print "epoch {} {}".format(epoch, losses)
+            print self.id2s(pred[0])
+            print self.id2s(decoder_target_batchs[j][0])
         
+    #  def test(self, s):
+        #  encoder_input = tf.convert_to_tensor(self.s2id(s))
+        #  encoder_input = tf.reshape(encoder_input, [1, -1])
+        #  self.sess.run(self.decoder_prediction)
+
+    def id2s(self, ids):
+        s = []
+        for w in ids:
+            if w != 0:
+                s.append(self.inv_word_dict[w])
+        return s
+
+    def s2id(self, s):
+        s_id = []
+        for w in s:
+            s_id.append(self.word_dict[w])
+        return s_id
 
     def Reward(self):
         pass
