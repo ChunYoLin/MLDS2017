@@ -25,11 +25,13 @@ class chatbot(object):
                 'embeddings', [self.vocab_size, self.embed_size], 
                 dtype=tf.float32
             )
+
+        
         self.encoder_inputs_embed = tf.nn.embedding_lookup(
             self.embeddings, self.encoder_inputs)
         self.decoder_inputs_embed = tf.nn.embedding_lookup(
             self.embeddings, self.decoder_inputs)
-        
+
         def lstm_cell():
             return tf.contrib.rnn.LSTMCell(
                 self.embed_size, forget_bias=0., state_is_tuple=True)
@@ -44,30 +46,40 @@ class chatbot(object):
         del encoder_final_outputs
 
         #---build decoder---#
-        decoder_cell = lstm_cell()
-        decoder_outputs, self.decoder_final_state = tf.nn.dynamic_rnn(
-            decoder_cell, self.decoder_inputs_embed,
-            initial_state=self.encoder_final_state,
-            dtype=tf.float32, time_major=False, scope="decoder"
-        )
-        self.decoder_outputs = tf.reshape(decoder_outputs, [-1, self.embed_size])
+        with tf.variable_scope('decoder'):
+            decoder_outputs = []
+            decoder_cell = lstm_cell()
+            for i in range(50):
+                if i == 0:
+                    output, state = decoder_cell(
+                        self.decoder_inputs_embed[:, i, :], 
+                        self.encoder_final_state
+                    )
+                else:
+                    tf.get_variable_scope().reuse_variables()
+                    output, state = decoder_cell(
+                        self.decoder_inputs_embed[:, i, :], 
+                        state
+                    )
+                decoder_outputs.append(output)
+        decoder_outputs = tf.reshape(
+            tf.concat(axis=1, values=decoder_outputs), [-1, self.embed_size])
+
         self.softmax_w = tf.get_variable(
             "softmax_w", [self.embed_size, self.vocab_size], dtype=tf.float32)
         self.softmax_b = tf.get_variable(
             "softmax_b", [self.vocab_size], dtype=tf.float32)
         decoder_logits = (
-            tf.matmul(self.decoder_outputs, self.softmax_w) + self.softmax_b)
+            tf.matmul(decoder_outputs, self.softmax_w) + self.softmax_b)
         self.decoder_logits = tf.reshape(
             decoder_logits, [self.batch_size, -1, self.vocab_size])
         self.decoder_prediction = tf.argmax(self.decoder_logits, 2)
-        #  self.decoder_logits = tf.contrib.layers.linear(
-            #  decoder_outputs, self.vocab_size)
-        #  self.decoder_prediction = tf.argmax(self.decoder_logits, 2)
+        
         loss = tf.nn.sampled_softmax_loss(
             weights=tf.transpose(self.softmax_w), 
             biases=self.softmax_b,
             labels=tf.reshape(self.decoder_targets, [-1, 1]),
-            inputs=self.decoder_outputs,
+            inputs=decoder_outputs,
             num_sampled=64,
             num_classes=self.vocab_size
         )
