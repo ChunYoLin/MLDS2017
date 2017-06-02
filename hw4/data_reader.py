@@ -2,6 +2,10 @@ import re
 import ast
 import collections
 import random
+import nltk
+import sys
+reload(sys)
+sys.setdefaultencoding("ISO-8859-1")
 
 converations_path = './data/cornell movie-dialogs corpus/movie_conversations.txt'
 lines_path = './data/cornell movie-dialogs corpus/movie_lines.txt'
@@ -19,21 +23,30 @@ def read_raw():
     lines = {}
     speakers = {}
     with open(lines_path, 'r') as movie_lines:
+        k = 0
         for line in movie_lines.read().splitlines():
-            idx = line.split()[0]
-            if len(line.split()) > 8:
-                lines[idx] = line.split()[8:]
+            line = line.split(' +++$+++ ')
+            idx = line[0]
+            if len(line) > 4:
+                s = line[4]
             else:
-                lines[idx] = []
-            speakers[idx] = line.split()[6]
-
+                s = ""
+            s = s.lower()
+            lines[idx] = nltk.word_tokenize(s)
+            
+            #  lines[idx] = re.sub(',', '', lines[idx])
+            #  lines[idx] = re.sub('\.', '', lines[idx])
+            #  lines[idx] = re.sub('!', '', lines[idx])
+            #  lines[idx] = re.sub('\?', '', lines[idx])
+            speakers[idx] = line[3]
+            k+=1
     words = []
     for convs in conversations:
         for line_idx in convs:
             for word in lines[line_idx]:
                 words.append(word)
     count = [['UNK', -1], ['BOS', -1], ['EOS', -1]]
-    count.extend(collections.Counter(words).most_common(10000))
+    count.extend(collections.Counter(words).most_common(50000))
     word_dict = {}
     inv_word_dict = {}
     for word, _ in count:
@@ -45,7 +58,7 @@ def read_raw():
     for convs in conversations:
         lines2id = []
         for line_idx in convs:
-            line2id = [word_dict['BOS']]
+            line2id = []
             for word in lines[line_idx]:
                 if word in word_dict:
                     line2id.append(word_dict[word])
@@ -56,49 +69,53 @@ def read_raw():
     return convs2id, word_dict, inv_word_dict
 
 def build_batch(convs2id, word_dict, batch_size=4, data_size=1280):
-    convs_choosed = random.sample(range(len(convs2id)), 1000)
+    #  convs_choosed = random.sample(range(len(convs2id)), 1000)
     encoder_input_batch = []
     decoder_input_batch = []
     decoder_target_batch = []
     encoder_input_batchs = []
     decoder_input_batchs = []
     decoder_target_batchs = []
-    for idx, convs_id in enumerate(convs_choosed):
-        encoder_input_batch.append(convs2id[convs_id][0])
-        decoder_input_batch.append(convs2id[convs_id][1])
-        decoder_target_batch.append(convs2id[convs_id][1][1:]+[word_dict['EOS']])
-        if (idx+1) % batch_size == 0:
-            max_len = 0
-            for line in encoder_input_batch:
-                if len(line) > max_len:
-                    max_len = len(line)
-            for line in encoder_input_batch:
-                for _ in range(max_len-len(line)):
-                   line.append(0) 
+    #  for idx, convs_id in enumerate(convs_choosed):
+    convs = 0
+    convs_choosed = set()
+    while convs < data_size:
+        convs_id = random.randint(0, len(convs2id)-1)
+        target_len = len(convs2id[convs_id][1])
+        if target_len > 10 and target_len < 100 and convs_id not in convs_choosed:
+            convs_choosed.add(convs_id)
+            convs += 1
+            encoder_input_batch.append(convs2id[convs_id][0])
+            decoder_input_batch.append(convs2id[convs_id][1])
+            decoder_target_batch.append(convs2id[convs_id][1]+[word_dict['EOS']])
+            if (convs) % batch_size == 0:
+                max_len = 0
+                for line in encoder_input_batch:
+                    if len(line) > max_len:
+                        max_len = len(line)
+                for line in encoder_input_batch:
+                    l = len(line)
+                    for _ in range(max_len-l):
+                       line.append(0) 
 
-            max_len = 0
-            for line in decoder_input_batch:
-                if len(line) > max_len:
-                    max_len = len(line)
-            for line in decoder_input_batch:
-                for _ in range(max_len-len(line)):
-                   line.append(0) 
+                for line in decoder_input_batch:
+                    l = len(line)
+                    for _ in range(100-l):
+                       line.append(0) 
 
-            max_len = 0
-            for line in decoder_target_batch:
-                if len(line) > max_len:
-                    max_len = len(line)
-            for line in decoder_target_batch:
-                for _ in range(max_len-len(line)):
-                   line.append(0) 
-                    
-            encoder_input_batchs.append(encoder_input_batch)
-            decoder_input_batchs.append(decoder_input_batch)
-            decoder_target_batchs.append(decoder_target_batch)
-            encoder_input_batch = []
-            decoder_input_batch = []
-            decoder_target_batch = []
+                for line in decoder_target_batch:
+                    l = len(line)
+                    for _ in range(100-l):
+                       line.append(0) 
+                        
+                encoder_input_batchs.append(encoder_input_batch)
+                decoder_input_batchs.append(decoder_input_batch)
+                decoder_target_batchs.append(decoder_target_batch)
+                encoder_input_batch = []
+                decoder_input_batch = []
+                decoder_target_batch = []
 
     return encoder_input_batchs, decoder_input_batchs, decoder_target_batchs
-            
+#  a, b, c = read_raw()
+#  build_batch(a, b)
 
