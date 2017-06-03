@@ -4,6 +4,7 @@ import random
 import tensorflow as tf
 import numpy as np
 import data_reader
+import pickle as pk
 
 
 class chatbot(object):
@@ -12,18 +13,29 @@ class chatbot(object):
         self.sess = sess
         self.data_size = 10000
         self.num_steps = 5
-        self.vocab_size = 50003
         self.embed_size = 256
-        convs2id, word_dict, inv_word_dict = data_reader.read_raw()
         if ops == 'train':
+            (encoder_input_ids, 
+            decoder_input_ids,
+            decoder_target_ids,
+            word_dict, 
+            inv_word_dict) = data_reader.read_selected()
             self.batch_size = 32
-            self.batchs = data_reader.build_batch(convs2id, word_dict, 
-                batch_size=self.batch_size, data_size=self.data_size)
+            self.batchs = data_reader.build_selected_batch(
+                encoder_input_ids,
+                decoder_input_ids,
+                decoder_target_ids,
+                word_dict, 
+                self.batch_size)
         elif ops == 'test':
+            with open("./word_dict.pk", 'r') as f:
+                word_dict = pk.load(f)
+            with open("./inv_word_dict.pk", 'r') as f:
+                inv_word_dict = pk.load(f)
             self.batch_size = 1
-        self.convs2id = convs2id
         self.word_dict = word_dict
         self.inv_word_dict = inv_word_dict
+        self.vocab_size = len(word_dict)
         self.build_model(ops)
     
     def build_model(self, ops):
@@ -33,6 +45,7 @@ class chatbot(object):
             shape=[None, None], dtype=tf.int32, name='decoder_targets')
         self.decoder_inputs = tf.placeholder(
             shape=[None, None], dtype=tf.int32, name='decoder_inputs')
+        self.ss = tf.placeholder(dtype=tf.bool, name='schedule_sampling')
         with tf.device('cpu:0'):
             self.embeddings = tf.get_variable(
                 'embeddings', [self.vocab_size, self.embed_size], 
@@ -63,7 +76,9 @@ class chatbot(object):
         with tf.variable_scope('decoder') as scope:
             decoder_cell = lstm_cell()
             decoder_outputs = []
-            for i in range(100):
+            decoder_output_probs = []
+            decoder_output_words = []
+            for i in range(280):
                 if i == 0:
                     embed_idx = [
                         self.word_dict["BOS"] for _ in range(self.batch_size)
@@ -72,10 +87,18 @@ class chatbot(object):
                 else:
                     tf.get_variable_scope().reuse_variables()
                     if ops == 'train':
-                        embed_idx = self.decoder_inputs[:, i]
+                        if self.ss == True:
+                            rand = tf.random.uniform([1])[0]
+                            embed_idx = tf.cond(
+                                rand>0.5, 
+                                self.decoder_inputs[:, i],
+                                argmax_word
+                            )
+                        else:
+                            embed_idx = self.decoder_inputs[:, i]
 
                     elif ops == 'test':
-                        embed_idx = sample_word
+                        embed_idx = argmax_word
 
                 decoder_inputs_embed = tf.nn.embedding_lookup(
                     self.embeddings, embed_idx)
@@ -85,14 +108,23 @@ class chatbot(object):
                 decoder_outputs.append(output)
                 output_logits = tf.matmul(output, softmax_w) + softmax_b
                 output_probs = tf.nn.softmax(output_logits) 
+                decoder_output_probs.append(output_probs)
                 sample_word = tf.multinomial(output_probs, 1)   
+                argmax_word = tf.argmax(output_probs, 1)
+                if ops == 'train':
+                    decoder_output_words.append(argmax_word)
+                elif ops == 'test':
+                    decoder_output_words.append(argmax_word)
+
         decoder_outputs = tf.reshape(
             tf.concat(axis=1, values=decoder_outputs), [-1, self.embed_size])
         decoder_logits = (
             tf.matmul(decoder_outputs, softmax_w) + softmax_b)
         self.decoder_logits = tf.reshape(
             decoder_logits, [self.batch_size, -1, self.vocab_size])
-        self.decoder_prediction = tf.argmax(self.decoder_logits, 2)
+        self.decoder_output_probs = tf.transpose(
+            decoder_output_probs, perm=[1, 0, 2])
+        self.decoder_output_words = tf.transpose(decoder_output_words)
         
         loss = tf.nn.sampled_softmax_loss(
             weights=tf.transpose(softmax_w), 
@@ -111,40 +143,48 @@ class chatbot(object):
         decoder_input_batchs = self.batchs[1]
         decoder_target_batchs = self.batchs[2]
         self.sess.run(tf.global_variables_initializer())
-        for epoch in range(1000):
-            losses = 0.
+        ss = False
+        losses = 0.
+        for epoch in range(200):
+            if epoch > 20:
+                ss = True
             for j in range(len(encoder_input_batchs)):
                 fetchs = {
                     'optim': self.optim,
                     'loss': self.loss,
-                    'pred': self.decoder_prediction,
+                    'pred': self.decoder_output_words,
                 }
                 feed_dict = {
                     self.encoder_inputs: encoder_input_batchs[j],
                     self.decoder_targets: decoder_target_batchs[j],
-                    self.decoder_inputs: decoder_input_batchs[j]
+                    self.decoder_inputs: decoder_input_batchs[j],
+                    self.ss: ss
                 }
                 vals = self.sess.run(
                     fetchs,
                     feed_dict=feed_dict
                 )
                 loss = vals['loss']
-                pred = vals['pred']
-                losses += loss / len(encoder_input_batchs)
-            print '----------------------'
-            print 'epoch {} {}'.format(epoch, losses)
-            idx = random.randint(0, self.batch_size-1)
-            print 'Input: {}'.format(self.id2s(encoder_input_batchs[j][idx]))
-            print 'Target: {}'.format(self.id2s(decoder_target_batchs[j][idx]))
-            print 'Output: {}'.format(self.id2s(pred[idx]))
-            if (epoch+1) % 100  == 0:
+                pred = vals['pred'].reshape([self.batch_size, 280])
+                losses += loss / 20.
+                if j % 20 == 0:
+                    print '----------------------'
+                    print 'epoch {} batch {}/{} loss {}'.format(
+                        epoch, j, len(encoder_input_batchs), losses)
+                    idx = random.randint(0, self.batch_size-1)
+                    print 'Input: {}'.format(self.id2s(encoder_input_batchs[j][idx]))
+                    print 'Target: {}'.format(self.id2s(decoder_target_batchs[j][idx]))
+                    print 'Output: {}'.format(self.id2s(pred[idx]))
+                    losses = 0.
+            if (epoch+1) % 20 == 0:
                 self.save('./basic_model/', epoch)
         
     def test(self, s):
         self.load('./basic_model/')
         encoder_input = np.asarray(self.s2id(s)).reshape(1, -1)
         fetchs = {
-            'pred': self.decoder_prediction,
+            'probs': self.decoder_output_probs,
+            'pred': self.decoder_output_words,
         }
         feed_dict = {
             self.encoder_inputs: encoder_input,
@@ -153,7 +193,8 @@ class chatbot(object):
             fetchs,
             feed_dict=feed_dict
         )
-        pred = vals["pred"]
+        pred = vals["pred"].reshape([self.batch_size, 280])
+        #  probs = vals["probs"][0, 0]
         print "Test Input: {}".format(s)
         print "Test Output: {}".format(self.id2s(pred[0]))
 
@@ -163,6 +204,8 @@ class chatbot(object):
             if w != 0:
                 s += self.inv_word_dict[w]
                 s += " "
+            if w == 2:
+                break
         return s
 
     def s2id(self, s):
@@ -200,6 +243,8 @@ with tf.Graph().as_default():
     with tf.variable_scope("Model"):
         train_model = chatbot(sess=sess, ops='train')
         train_model.train()
-    #  with tf.variable_scope("Model"):
-        #  test_model = chatbot(sess=sess, ops='test')
-        #  test_model.test("fuck you bitch !")
+    with tf.variable_scope("Model"):
+        test_model = chatbot(sess=sess, ops='test')
+        while True:
+            s = raw_input("Input: ")
+            test_model.test(s)
