@@ -13,8 +13,8 @@ sys.setdefaultencoding("ISO-8859-1")
 
 converations_path = './data/cornell movie-dialogs corpus/movie_conversations.txt'
 lines_path = './data/cornell movie-dialogs corpus/movie_lines.txt'
-selected_path = './data/movie_lines_selected_10k.txt'
 
+selected_path = './data/movie_lines_selected_10k.txt'
 def read_selected():
     with open(selected_path, 'r') as movie_lines:
         all_lines = movie_lines.read().splitlines()
@@ -78,37 +78,41 @@ def build_selected_batch(
     encoder_input_batchs = []
     decoder_input_batchs = []
     decoder_target_batchs = []
+    k = 0
     for i in range(len(encoder_input_ids)):
-        encoder_input_batch.append(encoder_input_ids[i])
-        decoder_input_batch.append(decoder_input_ids[i])
-        decoder_target_batch.append(decoder_target_ids[i])
-        if (i+1) % batch_size == 0:
-            max_len = 0
-            for line in encoder_input_batch:
-                if len(line) > max_len:
-                    max_len = len(line)
-            for line in encoder_input_batch:
-                l = len(line)
-                for _ in range(max_len-l):
-                   line.append(0) 
+        decoder_len = len(decoder_target_ids[i])
+        if decoder_len <= 30:
+            encoder_input_batch.append(encoder_input_ids[i])
+            decoder_input_batch.append(decoder_input_ids[i])
+            decoder_target_batch.append(decoder_target_ids[i])
+            k += 1
+            if k == batch_size:
+                k = 0
+                max_len = 0
+                for line in encoder_input_batch:
+                    if len(line) > max_len:
+                        max_len = len(line)
+                for line in encoder_input_batch:
+                    l = len(line)
+                    for _ in range(max_len-l):
+                       line.append(0) 
 
-            for line in decoder_input_batch:
-                l = len(line)
-                for _ in range(280-l):
-                   line.append(0) 
+                for line in decoder_input_batch:
+                    l = len(line)
+                    for _ in range(30-l):
+                       line.append(0) 
 
-            for line in decoder_target_batch:
-                l = len(line)
-                for _ in range(280-l):
-                   line.append(0) 
-                    
-            encoder_input_batchs.append(encoder_input_batch)
-            decoder_input_batchs.append(decoder_input_batch)
-            decoder_target_batchs.append(decoder_target_batch)
-            encoder_input_batch = []
-            decoder_input_batch = []
-            decoder_target_batch = []
-
+                for line in decoder_target_batch:
+                    l = len(line)
+                    for _ in range(30-l):
+                       line.append(0) 
+                        
+                encoder_input_batchs.append(encoder_input_batch)
+                decoder_input_batchs.append(decoder_input_batch)
+                decoder_target_batchs.append(decoder_target_batch)
+                encoder_input_batch = []
+                decoder_input_batch = []
+                decoder_target_batch = []
     return encoder_input_batchs, decoder_input_batchs, decoder_target_batchs
 
 
