@@ -15,34 +15,39 @@ converations_path = './data/cornell movie-dialogs corpus/movie_conversations.txt
 lines_path = './data/cornell movie-dialogs corpus/movie_lines.txt'
 
 selected_path = './data/movie_lines_selected_10k.txt'
+#  selected_path = './data/test.txt'
+
+def build_word_dict(words, vocab_size):
+    count = [['UNK', -1], ['BOS', -1], ['EOS', -1], ['PAD', -1]]
+    count.extend(collections.Counter(words).most_common(vocab_size-4))
+    word_dict = {}
+    inv_word_dict = {}
+    for word, _ in count:
+        idx = len(word_dict)
+        word_dict[word] = idx
+        inv_word_dict[idx] = word
+    return word_dict, inv_word_dict
+
 def read_selected():
     with open(selected_path, 'r') as movie_lines:
-        all_lines = movie_lines.read().splitlines()
-        encoder_input_raw = []
-        decoder_input_raw = []
-        for i in range(0, len(all_lines), 2):
-            encoder_input = nltk.word_tokenize(all_lines[i].lower())
-            decoder_input = nltk.word_tokenize(all_lines[i+1].lower())
-            encoder_input_raw.append(encoder_input)
-            decoder_input_raw.append(decoder_input)
+        all_lines = movie_lines.readlines()
+        source_raw = all_lines[0::2]
+        target_raw = all_lines[1::2]
+        counter = 0
         words = []
-        for line in encoder_input_raw:
-            for word in line:
+        #  build word dict
+        for idx in range(len(source_raw)):
+            source_raw[idx] = nltk.word_tokenize(source_raw[idx].lower())
+            for word in source_raw[idx]:
                 words.append(word)
-        for line in decoder_input_raw:
-            for word in line:
+        for idx in range(len(target_raw)):
+            target_raw[idx] = nltk.word_tokenize(target_raw[idx].lower())
+            for word in target_raw[idx]:
                 words.append(word)
-        count = [['UNK', -1], ['BOS', -1], ['EOS', -1]]
-        count.extend(collections.Counter(words).most_common(10000))
-        word_dict = {}
-        inv_word_dict = {}
-        for word, _ in count:
-            idx = len(word_dict)
-            word_dict[word] = idx
-            inv_word_dict[idx] = word
-        
+        word_dict, inv_word_dict = build_word_dict(words, 10000)
+
         encoder_input_ids = []
-        for line in encoder_input_raw:
+        for line in source_raw:
             encoder_input_id = []
             for word in line:
                 if word in word_dict:
@@ -53,7 +58,7 @@ def read_selected():
 
         decoder_input_ids = []
         decoder_target_ids = []
-        for line in decoder_input_raw:
+        for line in target_raw:
             decoder_input_id = []
             decoder_target_id = []
             for idx, word in enumerate(line):
@@ -95,17 +100,17 @@ def build_selected_batch(
                 for line in encoder_input_batch:
                     l = len(line)
                     for _ in range(max_len-l):
-                       line.append(0) 
+                       line.append(word_dict['PAD']) 
 
                 for line in decoder_input_batch:
                     l = len(line)
                     for _ in range(30-l):
-                       line.append(0) 
+                       line.append(word_dict['PAD']) 
 
                 for line in decoder_target_batch:
                     l = len(line)
                     for _ in range(30-l):
-                       line.append(0) 
+                       line.append(word_dict['PAD']) 
                         
                 encoder_input_batchs.append(encoder_input_batch)
                 decoder_input_batchs.append(decoder_input_batch)

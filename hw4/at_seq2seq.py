@@ -1,10 +1,14 @@
 import os
 import re
+import time
 import random
+import math
+import pickle as pk
+
 import tensorflow as tf
 import numpy as np
+
 import data_readerv2
-import pickle as pk
 
 
 class chatbot(object):
@@ -53,6 +57,7 @@ class chatbot(object):
                         num_sampled=num_samples,
                         num_classes=self.target_vocab_size),
                     dtype)
+            softmax_loss_function = sampled_loss
         def single_cell():
             return tf.contrib.rnn.GRUCell(size)
         if use_lstm:
@@ -96,22 +101,34 @@ class chatbot(object):
                         tf.matmul(output, output_projection[0]) + output_projection[1]
                         for output in self.outputs[b]
                     ]
+            output_probs = [
+                tf.reshape(tf.log(tf.nn.softmax(output)), [-1, self.target_vocab_size])
+                for output in self.outputs
+            ]
+            output_words = [
+                tf.multinomial(output, 1) for output in output_probs
+            ]
+
         else:
             self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
-            self.encoder_inputs, self.decoder_inputs, targets,
-            self.target_weights, buckets,
-            lambda x, y: seq2seq_f(x, y, False),
-            softmax_loss_function=softmax_loss_function)
+                self.encoder_inputs, self.decoder_inputs, targets,
+                self.target_weights, buckets,
+                lambda x, y: seq2seq_f(x, y, False),
+                softmax_loss_function=softmax_loss_function)
         params = tf.trainable_variables()
         if not forward_only:
-            self.gradient_norm = []
+            self.gradient_norms = []
             self.updates = []
-            opt = tf.train.GradientDescentOptimizer(self.learning_rate)
+            opt = tf.train.AdamOptimizer(self.learning_rate)
             for b in xrange(len(buckets)):
                 gradients = tf.gradients(self.losses[b], params)
                 clipped_gradients, norm = tf.clip_by_global_norm(gradients,
                                                                  max_gradient_norm)
-        self.saver = tf.train.saver(tf.global_variables())
+                self.gradient_norms.append(norm)
+                self.updates.append(opt.apply_gradients(
+                    zip(clipped_gradients, params), global_step=self.global_step))
+
+        self.saver = tf.train.Saver(tf.global_variables())
         
     def step(self, session, encoder_inputs, decoder_inputs, target_weights, 
              bucket_id, forward_only):
@@ -156,12 +173,12 @@ class chatbot(object):
             self.sess, os.path.join(checkpoint_dir, model_name),
             global_step=step)
 
-    def load(self, checkpoint_dir):
+    def load(self, sess, checkpoint_dir):
         print(" [*] Reading checkpoints...")
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
-            self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
+            self.saver.restore(sess, os.path.join(checkpoint_dir, ckpt_name))
             counter = int(next(re.finditer("(\d+)(?!.*\d)",ckpt_name)).group(0))
             print(" [*] Success to read {}".format(ckpt_name))
             return True, counter
@@ -169,24 +186,5 @@ class chatbot(object):
             print(" [*] Failed to find a checkpoint")
             return False, 0
 
-with tf.Graph().as_default(): 
-    with tf.Session() as sess:
-        w_id, inv_w_id, train_set = data_readerv2.read_selected(4000)
-        _bucket = [(5, 10), (10, 15), (20, 25), (40, 50)]
-        train_model = chatbot(
-            source_vocab_size=len(w_id),
-            target_vocab_size=len(w_id),
-            buckets=_bucket,
-            size=256,
-            num_layers=1,
-            max_gradient_norm=5.0,
-            batch_size=64,
-            learning_rate=0.5,
-            learning_rate_decay_factor=0.99,
-            use_lstm=False,
-            num_samples=512,
-            forward_only=False,
-            dtype=tf.float32)
-        train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_bucket))]
-        print train_bucket_sizes
+
 

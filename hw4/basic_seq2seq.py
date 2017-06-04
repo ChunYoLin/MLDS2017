@@ -1,10 +1,13 @@
 import os
 import re
 import random
+import pickle as pk
+
 import tensorflow as tf
 import numpy as np
+import nltk
+
 import data_reader
-import pickle as pk
 
 
 class chatbot(object):
@@ -33,7 +36,9 @@ class chatbot(object):
         self.inv_word_dict = inv_word_dict
         self.vocab_size = len(word_dict)
         self.build_model(ops)
-        self.saver = tf.train.Saver()
+        self.global_step = tf.Variable(0, trainable=False)
+        self.global_step_op = self.global_step.assign(self.global_step + 1)
+        self.saver = tf.train.Saver(tf.global_variables())
     
     def build_model(self, ops):
         self.encoder_inputs = tf.placeholder(
@@ -56,7 +61,7 @@ class chatbot(object):
                 self.embed_size, forget_bias=0., state_is_tuple=True)
 
         #---build encoder---#
-        with tf.variable_scope("encoder") as scope:
+        with tf.variable_scope("model") as scope:
             #  encoder_cell = lstm_cell()
             cell = lstm_cell()
             (encoder_final_outputs, self.encoder_final_state) = tf.nn.dynamic_rnn(
@@ -87,9 +92,10 @@ class chatbot(object):
                         return self.decoder_inputs[:, i-1]
                     def pred_input():
                         return argmax_word
+                    def sample_input():
+                        return sample_word
                     if ops == 'train':
-                        #  embed_idx = target_input()
-                        embed_idx = pred_input()
+                        embed_idx = target_input()
                         #  rand = tf.random_uniform([1])[0]
                         #  embed_idx = tf.cond(
                             #  rand>0.9, 
@@ -97,7 +103,8 @@ class chatbot(object):
                             #  pred_input,
                             #  )
                     elif ops == 'test':
-                        embed_idx = pred_input()
+                        #  embed_idx = pred_input()
+                        embed_idx = sample_input()
 
                 decoder_input_real.append(embed_idx)
                 decoder_inputs_embed = tf.nn.embedding_lookup(
@@ -107,8 +114,9 @@ class chatbot(object):
                 output, state = cell(decoder_inputs_embed, state)
                 decoder_outputs.append(output)
                 output_logits = tf.matmul(output, softmax_w) + softmax_b
-                output_probs = tf.nn.softmax(output_logits) 
+                output_probs = tf.log(tf.nn.softmax(output_logits))
                 argmax_word = tf.to_int32(tf.argmax(output_probs, 1))
+                sample_word = tf.multinomial(output_probs, 1)
                 decoder_output_words.append(argmax_word)
 
         decoder_outputs = tf.concat(axis=1, values=decoder_outputs)
@@ -137,14 +145,17 @@ class chatbot(object):
         decoder_input_batchs = self.batchs[1]
         decoder_target_batchs = self.batchs[2]
         self.sess.run(tf.global_variables_initializer())
-        self.load('./basic_model/')
-        for epoch in range(1000):
+        #  self.load('./basic_model/')
+        #  for epoch in range(1000):
+        epoch = 0
+        while True:
             losses = 0.
             for j in range(len(encoder_input_batchs)):
                 fetchs = {
                     'optim': self.optim,
                     'loss': self.loss,
                     'pred': self.decoder_output_words,
+                    'step': self.global_step,
                     }
                 feed_dict = {
                     self.encoder_inputs: encoder_input_batchs[j],
@@ -155,18 +166,20 @@ class chatbot(object):
                     fetchs,
                     feed_dict=feed_dict
                 )
+                global_step = vals['step']
                 loss = vals['loss']
                 pred = vals['pred'].reshape([self.batch_size, 30])
                 losses += loss / len(encoder_input_batchs)
+            self.sess.run(self.global_step_op)
             print '----------------------'
-            print 'epoch {} loss {}'.format(
-                epoch, losses)
+            print 'epoch {} loss {}'.format(global_step, losses)
             idx = random.randint(0, self.batch_size-1)
             print 'Input: {}'.format(self.id2s(encoder_input_batchs[j][idx]))
             print 'Target: {}'.format(self.id2s(decoder_target_batchs[j][idx]))
             print 'Output: {}'.format(self.id2s(pred[idx]))
-            if (epoch+1) % 100 == 0:
-                self.save('./basic_model/', epoch+1900)
+            epoch += 1
+            if (epoch) % 100 == 0:
+                self.save('./basic_model/', global_step)
         
     def test(self, s):
         encoder_input = np.asarray(self.s2id(s)).reshape(1, -1)
@@ -189,7 +202,7 @@ class chatbot(object):
     def id2s(self, ids):
         s = ""
         for w in ids:
-            if w != 0:
+            if w != self.word_dict['PAD']:
                 s += self.inv_word_dict[w]
                 s += " "
             if w == 2:
@@ -198,7 +211,8 @@ class chatbot(object):
 
     def s2id(self, s):
         s_id = []
-        for w in s.split():
+        s = nltk.word_tokenize(s)
+        for w in s:
             s_id.append(self.word_dict[w])
         return s_id
 
@@ -227,13 +241,13 @@ class chatbot(object):
             return False, 0
 
 with tf.Graph().as_default(): 
-    sess = tf.Session()
-    #  with tf.variable_scope("Model"):
-        #  train_model = chatbot(sess=sess, ops='train')
-        #  train_model.train()
-    with tf.variable_scope("Model"):
-        test_model = chatbot(sess=sess, ops='test')
-        test_model.load('./basic_model/')
-        while True:
-            s = raw_input("Input: ")
-            test_model.test(s)
+    with tf.Session() as sess:
+        with tf.variable_scope("Model"):
+            train_model = chatbot(sess=sess, ops='train')
+            train_model.train()
+        #  with tf.variable_scope("Model"):
+            #  test_model = chatbot(sess=sess, ops='test')
+            #  test_model.load('./basic_model/')
+            #  while True:
+                #  s = raw_input("Input: ")
+                #  test_model.test(s)

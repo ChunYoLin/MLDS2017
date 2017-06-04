@@ -15,7 +15,7 @@ sys.setdefaultencoding("ISO-8859-1")
 
 converations_path = './data/cornell movie-dialogs corpus/movie_conversations.txt'
 lines_path = './data/cornell movie-dialogs corpus/movie_lines.txt'
-selected_path = './data/movie_lines_selected_10k.txt'
+selected_path = './data/movie_lines_selected.txt'
 _bucket = [(5, 10), (10, 15), (20, 25), (40, 50)]
 
 def build_word_dict(words, vocab_size):
@@ -46,7 +46,7 @@ def read_selected(data_size):
             target_raw[idx] = nltk.word_tokenize(target_raw[idx].lower())
             for word in target_raw[idx]:
                 words.append(word)
-        word_dict, inv_word_dict = build_word_dict(words, 10000)
+        word_dict, inv_word_dict = build_word_dict(words, 20000)
         #  convert source raw to id
         source = []
         for line in source_raw:
@@ -81,9 +81,10 @@ def read_selected(data_size):
             for bucket_id, (source_size, target_size) in enumerate(_bucket):
                 if len(source_ids) < source_size and len(target_ids) < target_size:
                     data_set[bucket_id].append([source_ids, target_ids])
+                    break
         return word_dict, inv_word_dict, data_set
 
-w_id, inv_w_id, a = read_selected(2000)
+#  w_id, inv_w_id, a = read_selected(2000)
 def get_batch(word_dict, data, bucket_id, batch_size):
     encoder_size, decoder_size = _bucket[bucket_id]
     encoder_inputs, decoder_inputs = [], []
@@ -112,5 +113,5 @@ def get_batch(word_dict, data, bucket_id, batch_size):
         batch_weights.append(batch_weight)
     return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
-get_batch(w_id, a, 2, 4)
+#  get_batch(w_id, a, 2, 4)
 
