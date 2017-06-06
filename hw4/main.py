@@ -15,10 +15,12 @@ import data_readerv2
 import at_seq2seq
 
 _bucket = [(5, 10), (10, 15), (20, 25), (40, 50)]
-def create_model(sess, forward_only, vocab_size):
+def create_model(sess, forward_only, word_dict, inv_word_dict):
     model = at_seq2seq.chatbot(
-        source_vocab_size=vocab_size,
-        target_vocab_size=vocab_size,
+        word_dict=word_dict,
+        inv_word_dict=inv_word_dict,
+        source_vocab_size=len(word_dict),
+        target_vocab_size=len(word_dict),
         buckets=_bucket,
         size=256,
         num_layers=1,
@@ -36,7 +38,7 @@ def create_model(sess, forward_only, vocab_size):
 def train():
     with tf.Session() as sess:
         w_id, inv_w_id, train_set = data_readerv2.read_selected(20000)
-        model = create_model(sess, False, len(w_id))
+        model = create_model(sess, False, w_id, inv_w_id)
         model.load(sess, './at_s2s/')
         train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_bucket))]
         train_total_size = float(sum(train_bucket_sizes))
@@ -81,8 +83,8 @@ def test():
         with open('w_id.pk', 'r') as w, open('inv_w_id.pk', 'r') as inv_w:
             w_id = pk.load(w)
             inv_w_id = pk.load(inv_w)
-        model = create_model(sess, True, len(w_id))
-        model.load(sess, './at_s2s/')
+        model = create_model(sess, True, w_id, inv_w_id)
+        model.load(sess, './at_s2s_model/')
         model.batch_size = 1
         sys.stdout.write("> ")
         sys.stdout.flush()

@@ -9,6 +9,9 @@ import nltk
 
 import data_reader
 
+tf.app.flags.DEFINE_boolean("train", True, "True for training False to testing")
+FLAGS = tf.app.flags.FLAGS
+
 
 class chatbot(object):
 
@@ -17,6 +20,7 @@ class chatbot(object):
         self.data_size = 10000
         self.num_steps = 5
         self.embed_size = 256
+        self.num_layers = 1
         if ops == 'train':
             self.batch_size = 64
         elif ops == 'test':
@@ -56,14 +60,17 @@ class chatbot(object):
         self.encoder_inputs_embed = tf.nn.embedding_lookup(
             self.embeddings, self.encoder_inputs)
 
-        def lstm_cell():
+        def single_cell():
             return tf.contrib.rnn.LSTMCell(
                 self.embed_size, forget_bias=0., state_is_tuple=True)
 
         #---build encoder---#
         with tf.variable_scope("model") as scope:
+            cell = single_cell()
+            if self.num_layers > 1:
+                cell = tf.contrib.rnn.MultiRNNCell(
+                    [single_cell() for _ in range(num_layers)])
             #  encoder_cell = lstm_cell()
-            cell = lstm_cell()
             (encoder_final_outputs, self.encoder_final_state) = tf.nn.dynamic_rnn(
                 cell, self.encoder_inputs_embed, 
                 dtype=tf.float32, time_major=False, scope=scope
@@ -89,22 +96,11 @@ class chatbot(object):
                     state = self.encoder_final_state
                 else:
                     def target_input():
-                        return self.decoder_inputs[:, i-1]
-                    def pred_input():
-                        return argmax_word
-                    def sample_input():
-                        return sample_word
+                        return 
                     if ops == 'train':
-                        embed_idx = target_input()
-                        #  rand = tf.random_uniform([1])[0]
-                        #  embed_idx = tf.cond(
-                            #  rand>0.9, 
-                            #  target_input,
-                            #  pred_input,
-                            #  )
+                        embed_idx = self.decoder_inputs[:, i-1]
                     elif ops == 'test':
-                        #  embed_idx = pred_input()
-                        embed_idx = sample_input()
+                        embed_idx = sample_word
 
                 decoder_input_real.append(embed_idx)
                 decoder_inputs_embed = tf.nn.embedding_lookup(
@@ -117,7 +113,9 @@ class chatbot(object):
                 output_probs = tf.log(tf.nn.softmax(output_logits))
                 argmax_word = tf.to_int32(tf.argmax(output_probs, 1))
                 sample_word = tf.multinomial(output_probs, 1)
-                decoder_output_words.append(argmax_word)
+                sample_word = tf.to_int32(
+                    tf.reshape(sample_word, [self.batch_size]))
+                decoder_output_words.append(sample_word)
 
         decoder_outputs = tf.concat(axis=1, values=decoder_outputs)
         decoder_outputs = tf.reshape(decoder_outputs, [-1, self.embed_size])
@@ -145,7 +143,7 @@ class chatbot(object):
         decoder_input_batchs = self.batchs[1]
         decoder_target_batchs = self.batchs[2]
         self.sess.run(tf.global_variables_initializer())
-        #  self.load('./basic_model/')
+        self.load('./basic_model/')
         #  for epoch in range(1000):
         epoch = 0
         while True:
@@ -154,6 +152,7 @@ class chatbot(object):
                 fetchs = {
                     'optim': self.optim,
                     'loss': self.loss,
+                    'in': self.decoder_input_real,
                     'pred': self.decoder_output_words,
                     'step': self.global_step,
                     }
@@ -168,14 +167,18 @@ class chatbot(object):
                 )
                 global_step = vals['step']
                 loss = vals['loss']
+                IN = vals['in'].reshape([self.batch_size, 30])
                 pred = vals['pred'].reshape([self.batch_size, 30])
                 losses += loss / len(encoder_input_batchs)
             self.sess.run(self.global_step_op)
             print '----------------------'
             print 'epoch {} loss {}'.format(global_step, losses)
             idx = random.randint(0, self.batch_size-1)
-            print 'Input: {}'.format(self.id2s(encoder_input_batchs[j][idx]))
-            print 'Target: {}'.format(self.id2s(decoder_target_batchs[j][idx]))
+            print 'Encoder Input: {}'.format(
+                self.id2s(encoder_input_batchs[j][idx]))
+            print 'Decoder Input: {}'.format(self.id2s(IN[idx]))
+            print 'Target: {}'.format(
+                self.id2s(decoder_target_batchs[j][idx]))
             print 'Output: {}'.format(self.id2s(pred[idx]))
             epoch += 1
             if (epoch) % 100 == 0:
@@ -184,6 +187,7 @@ class chatbot(object):
     def test(self, s):
         encoder_input = np.asarray(self.s2id(s)).reshape(1, -1)
         fetchs = {
+            'in': self.decoder_input_real,
             'pred': self.decoder_output_words,
         }
         feed_dict = {
@@ -193,10 +197,12 @@ class chatbot(object):
             fetchs,
             feed_dict=feed_dict
         )
+        IN = vals['in'].reshape([self.batch_size, 30])
         pred = vals["pred"].reshape([self.batch_size, 30])
 
         #  probs = vals["probs"][0, 0]
         print "Test Input: {}".format(s)
+        #  print "Test real Input: {}".format(self.id2s(IN[0]))
         print "Test Output: {}".format(self.id2s(pred[0]))
 
     def id2s(self, ids):
@@ -213,10 +219,13 @@ class chatbot(object):
         s_id = []
         s = nltk.word_tokenize(s)
         for w in s:
-            s_id.append(self.word_dict[w])
+            if w in self.word_dict:
+                s_id.append(self.word_dict[w])
+            else:
+                s_id.append(0)
         return s_id
 
-    def Reward(self):
+    def Reward(self, h, x, t):
         pass
 
     def save(self, checkpoint_dir, step):
@@ -240,14 +249,20 @@ class chatbot(object):
             print(" [*] Failed to find a checkpoint")
             return False, 0
 
-with tf.Graph().as_default(): 
-    with tf.Session() as sess:
-        with tf.variable_scope("Model"):
-            train_model = chatbot(sess=sess, ops='train')
-            train_model.train()
-        #  with tf.variable_scope("Model"):
-            #  test_model = chatbot(sess=sess, ops='test')
-            #  test_model.load('./basic_model/')
-            #  while True:
-                #  s = raw_input("Input: ")
-                #  test_model.test(s)
+def main(_):
+    with tf.Graph().as_default(): 
+        with tf.Session() as sess:
+            if FLAGS.train:
+                with tf.variable_scope("Model"):
+                    train_model = chatbot(sess=sess, ops='train')
+                    train_model.train()
+            else:
+                with tf.variable_scope("Model"):
+                    test_model = chatbot(sess=sess, ops='test')
+                    test_model.load('./basic_model/')
+                    while True:
+                        s = raw_input("Input: ")
+                        test_model.test(s)
+
+if __name__ == "__main__":
+    tf.app.run()

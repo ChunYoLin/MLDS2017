@@ -14,6 +14,8 @@ import data_readerv2
 class chatbot(object):
 
     def __init__(self,
+            word_dict,
+            inv_word_dict,
             source_vocab_size,
             target_vocab_size,
             buckets,
@@ -27,6 +29,8 @@ class chatbot(object):
             num_samples=512,
             forward_only=False,
             dtype=tf.float32):
+        self.word_dict = word_dict
+        self.inv_word_dict = inv_word_dict
         self.source_vocab_size = source_vocab_size
         self.target_vocab_size = target_vocab_size
         self.buckets = buckets
