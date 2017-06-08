@@ -78,47 +78,56 @@ def build_selected_batch(
     encoder_input_ids, decoder_input_ids, decoder_target_ids, word_dict,
     batch_size=4):
     encoder_input_batch = []
+    encoder_input_length = []
     decoder_input_batch = []
     decoder_target_batch = []
+
     encoder_input_batchs = []
+    encoder_input_lengths = []
     decoder_input_batchs = []
     decoder_target_batchs = []
     k = 0
     for i in range(len(encoder_input_ids)):
+        encoder_len = len(encoder_input_ids[i])
         decoder_len = len(decoder_target_ids[i])
-        if decoder_len <= 30:
+        if encoder_len <= 50 and decoder_len <= 50:
             encoder_input_batch.append(encoder_input_ids[i])
+            encoder_input_length.append(len(encoder_input_ids[i]))
             decoder_input_batch.append(decoder_input_ids[i])
             decoder_target_batch.append(decoder_target_ids[i])
             k += 1
             if k == batch_size:
                 k = 0
-                max_len = 0
-                for line in encoder_input_batch:
-                    if len(line) > max_len:
-                        max_len = len(line)
-                for line in encoder_input_batch:
+                for idx, line in enumerate(encoder_input_batch):
                     l = len(line)
-                    for _ in range(max_len-l):
+                    for _ in range(50-l):
                        line.append(word_dict['PAD']) 
+                    encoder_input_batch[idx] = list(reversed(line))
+                encoder_input_batch_tmp = []
+                for length_idx in range(50):
+                    encoder_input_batch_tmp.append(
+                        [encoder_input_batch[batch_idx][length_idx] 
+                        for batch_idx in range(batch_size)])
 
                 for line in decoder_input_batch:
                     l = len(line)
-                    for _ in range(30-l):
+                    for _ in range(50-l):
                        line.append(word_dict['PAD']) 
 
                 for line in decoder_target_batch:
                     l = len(line)
-                    for _ in range(30-l):
+                    for _ in range(50-l):
                        line.append(word_dict['PAD']) 
                         
-                encoder_input_batchs.append(encoder_input_batch)
+                encoder_input_batchs.append(encoder_input_batch_tmp)
+                encoder_input_lengths.append(encoder_input_length)
                 decoder_input_batchs.append(decoder_input_batch)
                 decoder_target_batchs.append(decoder_target_batch)
                 encoder_input_batch = []
+                encoder_input_length = []
                 decoder_input_batch = []
                 decoder_target_batch = []
-    return encoder_input_batchs, decoder_input_batchs, decoder_target_batchs
+    return encoder_input_batchs, encoder_input_lengths, decoder_input_batchs, decoder_target_batchs
 
 
 def read_raw():

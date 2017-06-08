@@ -49,7 +49,7 @@ def train():
             inv_w_id = pk.load(inv_w)
         train_set = data_readerv2.read_lines(w_id, './data/chat.txt', 10000)
         model = create_model(sess, False, w_id, inv_w_id)
-        model.load(sess, './rl_s2s_model_twitter/')
+        model.load(sess, './at_s2s_model_twitter/')
         train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_bucket))]
         train_total_size = float(sum(train_bucket_sizes))
         train_buckets_scale = [sum(train_bucket_sizes[:i + 1]) / train_total_size
@@ -119,7 +119,8 @@ def test():
         with open('w_id.pk', 'r') as w, open('inv_w_id.pk', 'r') as inv_w:
             w_id = pk.load(w)
             inv_w_id = pk.load(inv_w)
-        train_set = data_readerv2.read_lines(w_id, './data/chat.txt', 0)
+        print 'finish load word dict......'
+        #  train_set = data_readerv2.read_lines(w_id, './data/chat.txt', 0)
         model = create_model(sess, True, w_id, inv_w_id)
         model.load(sess, './at_s2s_model_twitter/')
         model.batch_size = 1

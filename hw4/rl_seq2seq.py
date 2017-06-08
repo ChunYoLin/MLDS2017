@@ -43,7 +43,7 @@ class chatbot(object):
         self.learning_rate_decay_op = self.learning_rate.assign(
                 self.learning_rate * learning_rate_decay_factor)
         self.global_step = tf.Variable(0, trainable=False)
-        self.dummy_dialogs = ["I don't know"]
+        self.dummy_dialogs = ["I don't know.", "Okay.", "What?"]
 
         output_projection = None
         softmax_loss_function = None
