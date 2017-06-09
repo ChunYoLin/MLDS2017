@@ -14,7 +14,7 @@ sys.setdefaultencoding("ISO-8859-1")
 converations_path = './data/cornell movie-dialogs corpus/movie_conversations.txt'
 lines_path = './data/cornell movie-dialogs corpus/movie_lines.txt'
 
-selected_path = './data/movie_lines_selected_10k.txt'
+selected_path = './data/movie_lines_selected.txt'
 #  selected_path = './data/test.txt'
 
 def build_word_dict(words, vocab_size):
@@ -44,7 +44,7 @@ def read_selected():
             target_raw[idx] = nltk.word_tokenize(target_raw[idx].lower())
             for word in target_raw[idx]:
                 words.append(word)
-        word_dict, inv_word_dict = build_word_dict(words, 10000)
+        word_dict, inv_word_dict = build_word_dict(words, 20000)
 
         encoder_input_ids = []
         for line in source_raw:

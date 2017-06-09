@@ -47,9 +47,10 @@ def train():
         with open('w_id.pk', 'r') as w, open('inv_w_id.pk', 'r') as inv_w:
             w_id = pk.load(w)
             inv_w_id = pk.load(inv_w)
-        train_set = data_readerv2.read_lines(w_id, './data/chat.txt', 10000)
+        print 'finish load word dict......'
+        train_set = data_readerv2.read_lines(w_id, './data/movie_lines_selected.txt', 20000)
         model = create_model(sess, False, w_id, inv_w_id)
-        model.load(sess, './at_s2s_model_twitter/')
+        model.load(sess, './at_s2s_model/')
         train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_bucket))]
         train_total_size = float(sum(train_bucket_sizes))
         train_buckets_scale = [sum(train_bucket_sizes[:i + 1]) / train_total_size
@@ -107,7 +108,7 @@ def train():
                            "%f" % (model.global_step.eval(), model.learning_rate.eval(),
                             step_time, loss))
                     previous_losses.append(loss)
-                    checkpoint_path = './at_s2s_model_twitter/'
+                    checkpoint_path = './at_s2s_model/'
                     model_name = './model'
                     model.saver.save(
                         sess, os.path.join(checkpoint_path, model_name), 
@@ -122,7 +123,7 @@ def test():
         print 'finish load word dict......'
         #  train_set = data_readerv2.read_lines(w_id, './data/chat.txt', 0)
         model = create_model(sess, True, w_id, inv_w_id)
-        model.load(sess, './at_s2s_model_twitter/')
+        model.load(sess, './at_s2s_model_chatter/')
         model.batch_size = 1
         sys.stdout.write("> ")
         sys.stdout.flush()

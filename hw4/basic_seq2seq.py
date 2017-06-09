@@ -17,9 +17,9 @@ class chatbot(object):
 
     def __init__(self, sess, ops='train'):
         self.sess = sess
-        self.data_size = 10000
+        self.data_size = 20000
         self.num_steps = 50
-        self.embed_size = 256
+        self.embed_size = 512
         self.num_layers = 1
         if ops == 'train':
             self.batch_size = 64
@@ -78,7 +78,7 @@ class chatbot(object):
             cell = single_cell()
             if self.num_layers > 1:
                 cell = tf.contrib.rnn.MultiRNNCell(
-                    [single_cell() for _ in range(num_layers)])
+                    [single_cell() for _ in range(self.num_layers)])
             #  encoder_cell = lstm_cell()
             
             encoder_out = tf.contrib.rnn.static_rnn(
@@ -113,7 +113,7 @@ class chatbot(object):
                 else:
                     if ops == 'train':
                         embed_idx = self.decoder_inputs[:, i-1]
-                        embed_idx = argmax_word
+                        #  embed_idx = argmax_word
                     elif ops == 'test':
                         embed_idx = sample_word
 
@@ -124,14 +124,14 @@ class chatbot(object):
                     decoder_inputs_embed, [self.batch_size, self.embed_size])
                 output, state = cell(decoder_inputs_embed, state)
                 decoder_outputs.append(output)
-                #  if ops == 'test':
-                output_logits = tf.matmul(output, softmax_w) + softmax_b
-                output_probs = tf.log(tf.nn.softmax(output_logits))
-                argmax_word = tf.to_int32(tf.argmax(output_probs, 1))
-                sample_word = tf.multinomial(output_probs, 1)
-                sample_word = tf.to_int32(
-                    tf.reshape(sample_word, [self.batch_size]))
-                decoder_output_words.append(sample_word)
+                if ops == 'test':
+                    output_logits = tf.matmul(output, softmax_w) + softmax_b
+                    output_probs = tf.log(tf.nn.softmax(output_logits))
+                    argmax_word = tf.to_int32(tf.argmax(output_probs, 1))
+                    sample_word = tf.multinomial(output_probs, 1)
+                    sample_word = tf.to_int32(
+                        tf.reshape(sample_word, [self.batch_size]))
+                    decoder_output_words.append(sample_word)
 
         decoder_outputs = tf.concat(axis=1, values=decoder_outputs)
         decoder_outputs = tf.reshape(decoder_outputs, [-1, self.embed_size])
@@ -154,7 +154,7 @@ class chatbot(object):
             num_classes=self.vocab_size
         )
         self.loss = tf.reduce_mean(loss)
-        self.optim = tf.train.AdamOptimizer(0.0002).minimize(self.loss)
+        self.optim = tf.train.AdamOptimizer(0.002).minimize(self.loss)
 
     def train(self):
         encoder_input_batchs = self.batchs[0]
@@ -165,48 +165,49 @@ class chatbot(object):
         self.load('./basic_model/')
         #  for epoch in range(1000):
         epoch = 0
+        losses = 0.
         while True:
-            losses = 0.
-            for j in range(len(encoder_input_batchs)):
-                fetchs = {
-                    'optim': self.optim,
-                    'loss': self.loss,
-                    'in': self.decoder_input_real,
-                    'pred': self.decoder_output_words,
-                    'step': self.global_step,
-                    }
-                feed_dict = {
-                    self.encoder_lengths: encoder_input_lengths[j],
-                    self.decoder_targets: decoder_target_batchs[j],
-                    self.decoder_inputs: decoder_input_batchs[j],
+            j = random.randint(0, len(encoder_input_batchs)-1)
+            fetchs = {
+                'optim': self.optim,
+                'loss': self.loss,
+                'in': self.decoder_input_real,
+                'pred': self.decoder_output_words,
+                'step': self.global_step,
                 }
-                for i in range(self.num_steps):
-                    feed_dict[self.encoder_inputs[i]] = encoder_input_batchs[j][i]
-
-                vals = self.sess.run(
-                    fetchs,
-                    feed_dict=feed_dict
-                )
-                global_step = vals['step']
-                loss = vals['loss']
-                IN = vals['in'].reshape([self.batch_size, self.num_steps])
-                pred = vals['pred'].reshape([self.batch_size, self.num_steps])
-                losses += loss / len(encoder_input_batchs)
-            self.sess.run(self.global_step_op)
-            print '----------------------'
-            print 'epoch {} loss {}'.format(global_step, losses)
-            idx = random.randint(0, self.batch_size-1)
-            encoder_input_ = []
+            feed_dict = {
+                self.encoder_lengths: encoder_input_lengths[j],
+                self.decoder_targets: decoder_target_batchs[j],
+                self.decoder_inputs: decoder_input_batchs[j],
+            }
             for i in range(self.num_steps):
-                w = encoder_input_batchs[j][i][idx]
-                encoder_input_.append(w)
-            print 'Encoder Input: {}'.format(self.id2s(encoder_input_))
-            print 'Decoder Input: {}'.format(self.id2s(IN[idx]))
-            print 'Target: {}'.format(
-                self.id2s(decoder_target_batchs[j][idx]))
-            print 'Output: {}'.format(self.id2s(pred[idx]))
+                feed_dict[self.encoder_inputs[i]] = encoder_input_batchs[j][i]
+
+            vals = self.sess.run(
+                fetchs,
+                feed_dict=feed_dict
+            )
+            global_step = vals['step']
+            loss = vals['loss']
+            losses += loss
+            IN = vals['in'].reshape([self.batch_size, self.num_steps])
+            pred = vals['pred'].reshape([self.batch_size, self.num_steps])
+            self.sess.run(self.global_step_op)
             epoch += 1
             if (epoch) % 100 == 0:
+                print '----------------------'
+                print 'epoch {} loss {}'.format(global_step, losses/100.)
+                idx = random.randint(0, self.batch_size-1)
+                encoder_input_ = []
+                for i in range(self.num_steps):
+                    w = encoder_input_batchs[j][i][idx]
+                    encoder_input_.append(w)
+                print 'Encoder Input: {}'.format(self.id2s(encoder_input_))
+                print 'Decoder Input: {}'.format(self.id2s(IN[idx]))
+                print 'Target: {}'.format(
+                    self.id2s(decoder_target_batchs[j][idx]))
+                print 'Output: {}'.format(self.id2s(pred[idx]))
+                losses = 0.
                 self.save('./basic_model/', global_step)
         
     def test(self, s):
