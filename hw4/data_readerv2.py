@@ -46,18 +46,6 @@ def build_w():
         pk.dump(word_dict, w)
         pk.dump(inv_word_dict, inv_w)
 
-#  def build_word_dict(words, vocab_size):
-
-    #  count = [['UNK', -1], ['GO', -1], ['EOS', -1], ['PAD', -1]]
-    #  count.extend(collections.Counter(words).most_common(vocab_size-4))
-    #  word_dict = {}
-    #  inv_word_dict = {}
-    #  for word, _ in count:
-        #  idx = len(word_dict)
-        #  word_dict[word] = idx
-        #  inv_word_dict[idx] = word
-    #  return word_dict, inv_word_dict
-
 def read_lines(word_dict, path, data_size):
     data_set = [[] for _ in _bucket]
     with open(path, 'r') as movie_lines:

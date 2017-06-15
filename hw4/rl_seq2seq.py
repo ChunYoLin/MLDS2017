@@ -132,7 +132,7 @@ class chatbot(object):
         self.updates = []
         self.advantage = [tf.placeholder(tf.float32, name="advantage_%i" % i) 
                           for i in xrange(len(buckets))]
-        opt = tf.train.AdamOptimizer(self.learning_rate)
+        opt = tf.train.GradientDescentOptimizer(self.learning_rate)
         for b in xrange(len(buckets)):
             self.losses[b] = tf.subtract(self.losses[b], self.advantage[b])
             gradients = tf.gradients(self.losses[b], params)
